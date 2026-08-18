@@ -1,0 +1,152 @@
+{
+  "id": "google-antigravity-cli",
+  "name": "Google Antigravity CLI",
+  "description": "Persistent agent turns and model routing through a local signed-in Google Antigravity agy CLI.",
+  "icon": "https://cdn.simpleicons.org/google",
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": true,
+  "providers": [
+    "google-antigravity-cli"
+  ],
+  "cliBackends": [
+    "google-antigravity-cli"
+  ],
+  "syntheticAuthRefs": [
+    "google-antigravity-cli"
+  ],
+  "nonSecretAuthMarkers": [
+    "antigravity-local-session"
+  ],
+  "modelIdNormalization": {
+    "providers": {
+      "google-antigravity-cli": {
+        "aliases": {
+          "flash": "gemini-3.5-flash",
+          "flash-high": "gemini-3.5-flash-high",
+          "flash-low": "gemini-3.5-flash-low",
+          "pro": "gemini-3.1-pro-high",
+          "pro-low": "gemini-3.1-pro-low",
+          "pro-high": "gemini-3.1-pro-high",
+          "sonnet": "claude-sonnet-4.6",
+          "opus": "claude-opus-4.6",
+          "gpt": "gpt-oss-120b"
+        }
+      }
+    }
+  },
+  "modelCatalog": {
+    "providers": {
+      "google-antigravity-cli": {
+        "models": [
+          {
+            "id": "gemini-3.5-flash",
+            "name": "Gemini 3.5 Flash (Medium)",
+            "input": ["text"],
+            "contextWindow": 1000000,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "gemini-3.5-flash-high",
+            "name": "Gemini 3.5 Flash (High)",
+            "input": ["text"],
+            "contextWindow": 1000000,
+            "reasoning": true,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "gemini-3.5-flash-low",
+            "name": "Gemini 3.5 Flash (Low)",
+            "input": ["text"],
+            "contextWindow": 1000000,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "gemini-3.1-pro-low",
+            "name": "Gemini 3.1 Pro (Low)",
+            "input": ["text"],
+            "contextWindow": 1000000,
+            "reasoning": true,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "gemini-3.1-pro-high",
+            "name": "Gemini 3.1 Pro (High)",
+            "input": ["text"],
+            "contextWindow": 1000000,
+            "reasoning": true,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "claude-sonnet-4.6",
+            "name": "Claude Sonnet 4.6 (Thinking)",
+            "input": ["text"],
+            "contextWindow": 200000,
+            "reasoning": true,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "claude-opus-4.6",
+            "name": "Claude Opus 4.6 (Thinking)",
+            "input": ["text"],
+            "contextWindow": 200000,
+            "reasoning": true,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "gpt-oss-120b",
+            "name": "GPT-OSS 120B (Medium)",
+            "input": ["text"],
+            "contextWindow": 128000,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          }
+        ]
+      }
+    }
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "google-antigravity-cli",
+        "envVars": [
+          "ANTIGRAVITY_USER_DATA_DIR"
+        ]
+      }
+    ]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "google-antigravity-cli",
+      "method": "custom",
+      "choiceId": "google-antigravity-cli",
+      "choiceLabel": "Google Antigravity CLI",
+      "choiceHint": "Delegate agent turns to a local signed-in agy CLI",
+      "groupId": "google-antigravity-cli",
+      "groupLabel": "Google Antigravity CLI",
+      "groupHint": "Local CLI runtime",
+      "onboardingScopes": [
+        "text-inference"
+      ]
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "type": "string",
+        "default": "agy"
+      },
+      "printTimeout": {
+        "type": "string",
+        "default": "30m0s",
+        "description": "Timeout for agy --print invocations (e.g. 15m0s, 30m0s)"
+      },
+      "userDataDir": {
+        "type": "string",
+        "description": "Custom Antigravity data directory (default: ~/.gemini/antigravity-cli)"
+      }
+    }
+  }
+}
