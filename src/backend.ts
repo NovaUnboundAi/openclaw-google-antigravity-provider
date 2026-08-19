@@ -102,20 +102,32 @@ export async function resolveCachedConversationId(params: {
   return undefined;
 }
 
+function resolvePluginConfig(cfg?: Record<string, any>, providerId?: string): Record<string, any> | undefined {
+  return (
+    cfg?.plugins?.entries?.[providerId ?? GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
+    cfg?.plugins?.entries?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
+    cfg?.plugins?.entries?.["agy"]?.config
+  );
+}
+
 export function normalizeGoogleAntigravityBackendConfig(
   config: CliBackendConfig,
   context?: CliBackendNormalizeConfigContext,
 ): CliBackendConfig {
   const cfg = context?.config as Record<string, any> | undefined;
+  const pluginConfig = resolvePluginConfig(cfg, context?.backendId);
   const backendConfig =
     (context?.backendId ? cfg?.agents?.defaults?.cliBackends?.[context.backendId] : undefined) ??
-    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID];
+    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID] ??
+    pluginConfig;
 
   const streamEnabled =
     backendConfig?.stream === true ||
     backendConfig?.streaming === true ||
     backendConfig?.output === "jsonl" ||
-    backendConfig?.outputFormat === "stream-json";
+    backendConfig?.outputFormat === "stream-json" ||
+    pluginConfig?.stream === true ||
+    pluginConfig?.streaming === true;
 
   if (streamEnabled) {
     return {
@@ -132,12 +144,15 @@ export function resolveGoogleAntigravityExecutionArgs(
 ): string[] {
   const cfg = context.config as Record<string, any> | undefined;
   const providerId = context.provider || GOOGLE_ANTIGRAVITY_PROVIDER_ID;
+  const pluginConfig = resolvePluginConfig(cfg, providerId);
   const backendConfig =
     cfg?.agents?.defaults?.cliBackends?.[providerId] ??
-    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID];
+    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID] ??
+    pluginConfig;
 
   const configuredTimeout =
     backendConfig?.printTimeout ??
+    pluginConfig?.printTimeout ??
     cfg?.agents?.defaults?.models?.[context.modelId]?.params?.timeoutSeconds ??
     cfg?.agents?.defaults?.models?.[`${providerId}/*`]?.params?.timeoutSeconds ??
     cfg?.agents?.defaults?.models?.[`${GOOGLE_ANTIGRAVITY_PROVIDER_ID}/*`]?.params?.timeoutSeconds ??
@@ -158,7 +173,9 @@ export function resolveGoogleAntigravityExecutionArgs(
     backendConfig?.stream === true ||
     backendConfig?.streaming === true ||
     backendConfig?.output === "jsonl" ||
-    backendConfig?.outputFormat === "stream-json";
+    backendConfig?.outputFormat === "stream-json" ||
+    pluginConfig?.stream === true ||
+    pluginConfig?.streaming === true;
 
   if (streamEnabled && !args.includes("--output-format")) {
     args.push("--output-format", "stream-json");
