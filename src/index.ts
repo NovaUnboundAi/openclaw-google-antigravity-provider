@@ -17,9 +17,34 @@ export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 
 export const MODEL_DEFINITIONS = [
   {
-    id: "gemini-3.5-flash",
-    name: "Gemini 3.5 Flash (Medium)",
-    reasoning: false,
+    id: "gemini-3.7-flash-high",
+    name: "Gemini 3.7 Flash (High)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.7-flash-medium",
+    name: "Gemini 3.7 Flash (Medium)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.7-flash-low",
+    name: "Gemini 3.7 Flash (Low)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.6-flash-high",
+    name: "Gemini 3.6 Flash (High)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.6-flash-medium",
+    name: "Gemini 3.6 Flash (Medium)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.6-flash-low",
+    name: "Gemini 3.6 Flash (Low)",
+    reasoning: true,
   },
   {
     id: "gemini-3.5-flash-high",
@@ -27,18 +52,28 @@ export const MODEL_DEFINITIONS = [
     reasoning: true,
   },
   {
+    id: "gemini-3.5-flash-medium",
+    name: "Gemini 3.5 Flash (Medium)",
+    reasoning: false,
+  },
+  {
     id: "gemini-3.5-flash-low",
     name: "Gemini 3.5 Flash (Low)",
     reasoning: false,
   },
   {
-    id: "gemini-3.1-pro-low",
-    name: "Gemini 3.1 Pro (Low)",
-    reasoning: true,
+    id: "gemini-3.5-flash",
+    name: "Gemini 3.5 Flash",
+    reasoning: false,
   },
   {
     id: "gemini-3.1-pro-high",
     name: "Gemini 3.1 Pro (High)",
+    reasoning: true,
+  },
+  {
+    id: "gemini-3.1-pro-low",
+    name: "Gemini 3.1 Pro (Low)",
     reasoning: true,
   },
   {
@@ -54,17 +89,17 @@ export const MODEL_DEFINITIONS = [
   {
     id: "gpt-oss-120b",
     name: "GPT-OSS 120B (Medium)",
-    reasoning: false,
+    reasoning: true,
   },
 ] as const;
 
-function buildRuntimeModel(modelId: string): ProviderRuntimeModel | undefined {
+function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntimeModel | undefined {
   const definition = MODEL_DEFINITIONS.find((model) => model.id === modelId);
   if (!definition) return undefined;
   return {
     id: definition.id,
     name: definition.name,
-    provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+    provider: providerId,
     api: "google-generative-ai",
     baseUrl: "https://antigravity.invalid",
     reasoning: definition.reasoning,
@@ -75,11 +110,11 @@ function buildRuntimeModel(modelId: string): ProviderRuntimeModel | undefined {
   };
 }
 
-function buildAntigravityConfigPatch() {
+function buildAntigravityConfigPatch(providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID) {
   const models: Record<string, any> = {};
   for (const model of MODEL_DEFINITIONS) {
-    models[`${GOOGLE_ANTIGRAVITY_PROVIDER_ID}/${model.id}`] = {
-      agentRuntime: { id: GOOGLE_ANTIGRAVITY_PROVIDER_ID },
+    models[`${providerId}/${model.id}`] = {
+      agentRuntime: { id: providerId },
     };
   }
   return { agents: { defaults: { models } } };
@@ -90,11 +125,12 @@ export type BuildGoogleAntigravityProviderOptions = {
 };
 
 export function buildGoogleAntigravityProvider(
+  providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   options: BuildGoogleAntigravityProviderOptions = {},
 ): ProviderPlugin {
   const runProbe = options.probe ?? probeAgy;
   return {
-    id: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+    id: providerId,
     label: "Google Antigravity CLI",
     docsPath: "/gateway/cli-backends",
     envVars: ["ANTIGRAVITY_USER_DATA_DIR"],
@@ -132,7 +168,7 @@ export function buildGoogleAntigravityProvider(
           return {
             profiles: [],
             defaultModel: GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
-            configPatch: buildAntigravityConfigPatch(),
+            configPatch: buildAntigravityConfigPatch(providerId),
             notes: [
               "Uses the local signed-in agy runtime. OpenClaw does not import or persist Antigravity OAuth tokens.",
               "Prompts are passed through agy --print as command-line arguments.",
@@ -144,10 +180,10 @@ export function buildGoogleAntigravityProvider(
     ],
     wizard: {
       setup: {
-        choiceId: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        choiceId: providerId,
         choiceLabel: "Google Antigravity CLI",
         choiceHint: "Delegate text inference to a local signed-in agy CLI",
-        groupId: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        groupId: providerId,
         groupLabel: "Google Antigravity CLI",
         groupHint: "Local CLI runtime",
         methodId: "custom",
@@ -161,10 +197,10 @@ export function buildGoogleAntigravityProvider(
         mode: "token",
       };
     },
-    resolveDynamicModel: ({ modelId }) => buildRuntimeModel(modelId),
+    resolveDynamicModel: ({ modelId }) => buildRuntimeModel(providerId, modelId),
     augmentModelCatalog: () =>
       MODEL_DEFINITIONS.map((model) => ({
-        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        provider: providerId,
         id: model.id,
         name: model.name,
         reasoning: model.reasoning,
@@ -181,8 +217,10 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
   name: "Google Antigravity CLI Provider",
   description: "Persistent agent turns through a local Google Antigravity agy CLI",
   register(api: OpenClawPluginApi) {
-    api.registerProvider(buildGoogleAntigravityProvider());
-    api.registerCliBackend(buildGoogleAntigravityCliBackend());
+    api.registerProvider(buildGoogleAntigravityProvider("google-antigravity-cli"));
+    api.registerCliBackend(buildGoogleAntigravityCliBackend("google-antigravity-cli"));
+    api.registerProvider(buildGoogleAntigravityProvider("agy"));
+    api.registerCliBackend(buildGoogleAntigravityCliBackend("agy"));
   },
 });
 

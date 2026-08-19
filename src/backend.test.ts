@@ -8,14 +8,15 @@ import {
 
 describe("google-antigravity-cli CLI backend", () => {
   it("declares the CLI backend structure with 30m0s default timeout", () => {
-    const backend = buildGoogleAntigravityCliBackend({});
+    const backend = buildGoogleAntigravityCliBackend();
 
     expect(backend.id).toBe(GOOGLE_ANTIGRAVITY_PROVIDER_ID);
     expect(backend.nativeToolMode).toBe("always-on");
+    expect(backend.ownsNativeCompaction).toBe(true);
     expect(backend.config).toEqual(
       expect.objectContaining({
         command: "agy",
-        args: ["--print", "{prompt}", "--print-timeout", "30m0s"],
+        args: ["--print", "{prompt}", "--print-timeout", "30m0s", "--dangerously-skip-permissions"],
         resumeArgs: [
           "--conversation",
           "{sessionId}",
@@ -23,6 +24,7 @@ describe("google-antigravity-cli CLI backend", () => {
           "{prompt}",
           "--print-timeout",
           "30m0s",
+          "--dangerously-skip-permissions",
         ],
         input: "arg",
         output: "text",
@@ -32,10 +34,10 @@ describe("google-antigravity-cli CLI backend", () => {
       }),
     );
     expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES).toMatchObject({
-      flash: "Gemini 3.5 Flash (Medium)",
-      pro: "Gemini 3.1 Pro (High)",
-      "pro-high": "Gemini 3.1 Pro (High)",
-      sonnet: "Claude Sonnet 4.6 (Thinking)",
+      flash: "gemini-3.7-flash-medium",
+      pro: "gemini-3.1-pro-high",
+      "pro-high": "gemini-3.1-pro-high",
+      sonnet: "claude-sonnet-4.6",
     });
   });
 
@@ -48,7 +50,7 @@ describe("google-antigravity-cli CLI backend", () => {
         agents: {
           defaults: {
             models: {
-              "google-antigravity-cli/gemini-3.5-flash": {
+              "google-antigravity-cli/gemini-3.7-flash-medium": {
                 params: { timeoutSeconds: 900 },
               },
             },
@@ -57,7 +59,7 @@ describe("google-antigravity-cli CLI backend", () => {
       } as any,
       workspaceDir: "/tmp",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "google-antigravity-cli/gemini-3.5-flash",
+      modelId: "google-antigravity-cli/gemini-3.7-flash-medium",
       authProfileId: undefined,
       thinkingLevel: undefined,
       executionMode: "agent",
@@ -81,7 +83,7 @@ describe("google-antigravity-cli CLI backend", () => {
       } as any,
       workspaceDir: "/tmp",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "gemini-3.5-flash",
+      modelId: "gemini-3.7-flash-medium",
       authProfileId: undefined,
       thinkingLevel: undefined,
       executionMode: "agent",
@@ -92,7 +94,7 @@ describe("google-antigravity-cli CLI backend", () => {
   });
 
   it("forwards ANTIGRAVITY_USER_DATA_DIR and clears raw Google API credentials", async () => {
-    const backend = buildGoogleAntigravityCliBackend({
+    const backend = buildGoogleAntigravityCliBackend("google-antigravity-cli", {
       ANTIGRAVITY_USER_DATA_DIR: " /tmp/antigravity-profile ",
       GEMINI_API_KEY: "secret",
     });
@@ -100,7 +102,7 @@ describe("google-antigravity-cli CLI backend", () => {
     const prepared = await backend.prepareExecution?.({
       workspaceDir: "/tmp/workspace",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "gemini-3.5-flash",
+      modelId: "gemini-3.7-flash-medium",
     });
 
     expect(prepared).toEqual(

@@ -8,7 +8,7 @@ import { GOOGLE_ANTIGRAVITY_PROVIDER_ID } from "./backend.js";
 
 describe("buildGoogleAntigravityProvider", () => {
   it("registers provider metadata and models", () => {
-    const provider = buildGoogleAntigravityProvider({
+    const provider = buildGoogleAntigravityProvider(GOOGLE_ANTIGRAVITY_PROVIDER_ID, {
       probe: () => ({ ok: true, helpText: "--print --model --print-timeout" }),
     });
 
@@ -21,19 +21,19 @@ describe("buildGoogleAntigravityProvider", () => {
 
     const catalog = provider.augmentModelCatalog?.({} as any) ?? [];
     expect(catalog.length).toBe(MODEL_DEFINITIONS.length);
-    expect(catalog.some((m) => m.id === "gemini-3.5-flash-high")).toBe(true);
+    expect(catalog.some((m) => m.id === "gemini-3.7-flash-medium")).toBe(true);
     expect(catalog.some((m) => m.id === "claude-sonnet-4.6")).toBe(true);
   });
 
   it("resolves dynamic models with 1M context", () => {
     const provider = buildGoogleAntigravityProvider();
     const model = provider.resolveDynamicModel?.({
-      modelId: "gemini-3.5-flash-high",
+      modelId: "gemini-3.7-flash-medium",
     } as any);
 
     expect(model).toEqual(
       expect.objectContaining({
-        id: "gemini-3.5-flash-high",
+        id: "gemini-3.7-flash-medium",
         provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
         contextWindow: 1_000_000,
         reasoning: true,

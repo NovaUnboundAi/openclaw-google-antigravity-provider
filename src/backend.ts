@@ -9,33 +9,34 @@ import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
-  "google-antigravity-cli/gemini-3.5-flash";
+  "google-antigravity-cli/gemini-3.7-flash-medium";
 
 export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
-  flash: "Gemini 3.5 Flash (Medium)",
-  pro: "Gemini 3.1 Pro (High)",
-  "pro-low": "Gemini 3.1 Pro (Low)",
-  "pro-high": "Gemini 3.1 Pro (High)",
-  sonnet: "Claude Sonnet 4.6 (Thinking)",
-  opus: "Claude Opus 4.6 (Thinking)",
-  gpt: "GPT-OSS 120B (Medium)",
-  "gemini-3.5-flash": "Gemini 3.5 Flash (Medium)",
-  "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
-  "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
-  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)",
-  "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
-  "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)",
-  "claude-sonnet-4.6": "Claude Sonnet 4.6 (Thinking)",
-  "claude-opus-4.6": "Claude Opus 4.6 (Thinking)",
-  "gpt-oss-120b": "GPT-OSS 120B (Medium)",
-  "Gemini 3.5 Flash (Medium)": "Gemini 3.5 Flash (Medium)",
-  "Gemini 3.5 Flash (High)": "Gemini 3.5 Flash (High)",
-  "Gemini 3.5 Flash (Low)": "Gemini 3.5 Flash (Low)",
-  "Gemini 3.1 Pro (Low)": "Gemini 3.1 Pro (Low)",
-  "Gemini 3.1 Pro (High)": "Gemini 3.1 Pro (High)",
-  "Claude Sonnet 4.6 (Thinking)": "Claude Sonnet 4.6 (Thinking)",
-  "Claude Opus 4.6 (Thinking)": "Claude Opus 4.6 (Thinking)",
-  "GPT-OSS 120B (Medium)": "GPT-OSS 120B (Medium)",
+  flash: "gemini-3.7-flash-medium",
+  "flash-high": "gemini-3.7-flash-high",
+  "flash-medium": "gemini-3.7-flash-medium",
+  "flash-low": "gemini-3.7-flash-low",
+  pro: "gemini-3.1-pro-high",
+  "pro-low": "gemini-3.1-pro-low",
+  "pro-high": "gemini-3.1-pro-high",
+  sonnet: "claude-sonnet-4.6",
+  opus: "claude-opus-4.6",
+  gpt: "gpt-oss-120b",
+  "gemini-3.7-flash-high": "gemini-3.7-flash-high",
+  "gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
+  "gemini-3.7-flash-low": "gemini-3.7-flash-low",
+  "gemini-3.6-flash-high": "gemini-3.6-flash-high",
+  "gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
+  "gemini-3.6-flash-low": "gemini-3.6-flash-low",
+  "gemini-3.5-flash": "gemini-3.5-flash-medium",
+  "gemini-3.5-flash-medium": "gemini-3.5-flash-medium",
+  "gemini-3.5-flash-high": "gemini-3.5-flash-high",
+  "gemini-3.5-flash-low": "gemini-3.5-flash-low",
+  "gemini-3.1-pro-low": "gemini-3.1-pro-low",
+  "gemini-3.1-pro-high": "gemini-3.1-pro-high",
+  "claude-sonnet-4.6": "claude-sonnet-4-6",
+  "claude-opus-4.6": "claude-opus-4-6-thinking",
+  "gpt-oss-120b": "gpt-oss-120b-medium",
 };
 
 const CONVERSATION_ID_PATTERN =
@@ -125,15 +126,16 @@ export function resolveGoogleAntigravityExecutionArgs(
 }
 
 export function buildGoogleAntigravityCliBackend(
+  backendId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   env: NodeJS.ProcessEnv = process.env,
 ): CliBackendPlugin {
   const userDataDir = resolveAntigravityDataDir(env);
   const conversationCachePath = path.join(userDataDir, "cache", "last_conversations.json");
 
   return {
-    id: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-    modelProvider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-    liveTest: { defaultModelRef: GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF },
+    id: backendId,
+    modelProvider: backendId,
+    liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash-medium` },
     nativeToolMode: "always-on",
     ownsNativeCompaction: true,
     resolveExecutionArgs: resolveGoogleAntigravityExecutionArgs,
@@ -201,7 +203,7 @@ export function buildGoogleAntigravityCliBackend(
     },
     config: {
       command: "agy",
-      args: ["--print", "{prompt}", "--print-timeout", DEFAULT_PRINT_TIMEOUT],
+      args: ["--print", "{prompt}", "--print-timeout", DEFAULT_PRINT_TIMEOUT, "--dangerously-skip-permissions"],
       resumeArgs: [
         "--conversation",
         "{sessionId}",
@@ -209,6 +211,7 @@ export function buildGoogleAntigravityCliBackend(
         "{prompt}",
         "--print-timeout",
         DEFAULT_PRINT_TIMEOUT,
+        "--dangerously-skip-permissions",
       ],
       output: "text",
       input: "arg",
