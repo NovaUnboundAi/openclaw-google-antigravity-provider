@@ -120,6 +120,21 @@ function buildAntigravityConfigPatch(providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID
   return { agents: { defaults: { models } } };
 }
 
+export function buildModelCatalogRows(providerId: string, source: "static" | "live" = "static") {
+  return MODEL_DEFINITIONS.map((model) => ({
+    kind: "text" as const,
+    provider: providerId,
+    model: model.id,
+    label: model.name,
+    source,
+    capabilities: {
+      reasoning: model.reasoning,
+      input: ["text"],
+      contextWindow: 1_000_000,
+    },
+  }));
+}
+
 export type BuildGoogleAntigravityProviderOptions = {
   probe?: () => AgyProbeResult;
 };
@@ -219,8 +234,21 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
   register(api: OpenClawPluginApi) {
     api.registerProvider(buildGoogleAntigravityProvider("google-antigravity-cli"));
     api.registerCliBackend(buildGoogleAntigravityCliBackend("google-antigravity-cli"));
+    api.registerModelCatalogProvider({
+      provider: "google-antigravity-cli",
+      kinds: ["text"],
+      staticCatalog: () => buildModelCatalogRows("google-antigravity-cli", "static"),
+      liveCatalog: () => buildModelCatalogRows("google-antigravity-cli", "live"),
+    });
+
     api.registerProvider(buildGoogleAntigravityProvider("agy"));
     api.registerCliBackend(buildGoogleAntigravityCliBackend("agy"));
+    api.registerModelCatalogProvider({
+      provider: "agy",
+      kinds: ["text"],
+      staticCatalog: () => buildModelCatalogRows("agy", "static"),
+      liveCatalog: () => buildModelCatalogRows("agy", "live"),
+    });
   },
 });
 
