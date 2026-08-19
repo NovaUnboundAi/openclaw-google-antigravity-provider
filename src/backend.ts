@@ -2,6 +2,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type {
+  CliBackendConfig,
+  CliBackendNormalizeConfigContext,
   CliBackendPlugin,
   CliBackendResolveExecutionArgsContext,
 } from "openclaw/plugin-sdk/cli-backend";
@@ -100,6 +102,31 @@ export async function resolveCachedConversationId(params: {
   return undefined;
 }
 
+export function normalizeGoogleAntigravityBackendConfig(
+  config: CliBackendConfig,
+  context?: CliBackendNormalizeConfigContext,
+): CliBackendConfig {
+  const cfg = context?.config as Record<string, any> | undefined;
+  const backendConfig =
+    (context?.backendId ? cfg?.agents?.defaults?.cliBackends?.[context.backendId] : undefined) ??
+    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID];
+
+  const streamEnabled =
+    backendConfig?.stream === true ||
+    backendConfig?.streaming === true ||
+    backendConfig?.output === "jsonl" ||
+    backendConfig?.outputFormat === "stream-json";
+
+  if (streamEnabled) {
+    return {
+      ...config,
+      output: "jsonl",
+    };
+  }
+
+  return config;
+}
+
 export function resolveGoogleAntigravityExecutionArgs(
   context: CliBackendResolveExecutionArgsContext,
 ): string[] {
@@ -126,6 +153,17 @@ export function resolveGoogleAntigravityExecutionArgs(
     args.push("--print-timeout", timeoutStr);
   }
 
+  // Optional streaming mode via config
+  const streamEnabled =
+    backendConfig?.stream === true ||
+    backendConfig?.streaming === true ||
+    backendConfig?.output === "jsonl" ||
+    backendConfig?.outputFormat === "stream-json";
+
+  if (streamEnabled && !args.includes("--output-format")) {
+    args.push("--output-format", "stream-json");
+  }
+
   return args;
 }
 
@@ -142,6 +180,7 @@ export function buildGoogleAntigravityCliBackend(
     liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash-medium` },
     nativeToolMode: "always-on",
     ownsNativeCompaction: true,
+    normalizeConfig: normalizeGoogleAntigravityBackendConfig,
     resolveExecutionArgs: resolveGoogleAntigravityExecutionArgs,
     prepareExecution: (ctx) => {
       const cwd = (ctx as { cwd?: string; workspaceDir: string }).cwd ?? ctx.workspaceDir;
@@ -207,7 +246,13 @@ export function buildGoogleAntigravityCliBackend(
     },
     config: {
       command: "agy",
-      args: ["--print", "{prompt}", "--print-timeout", DEFAULT_PRINT_TIMEOUT, "--dangerously-skip-permissions"],
+      args: [
+        "--print",
+        "{prompt}",
+        "--print-timeout",
+        DEFAULT_PRINT_TIMEOUT,
+        "--dangerously-skip-permissions",
+      ],
       resumeArgs: [
         "--conversation",
         "{sessionId}",

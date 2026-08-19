@@ -3,6 +3,7 @@ import {
   buildGoogleAntigravityCliBackend,
   GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+  normalizeGoogleAntigravityBackendConfig,
   resolveGoogleAntigravityExecutionArgs,
 } from "./backend.js";
 
@@ -41,7 +42,7 @@ describe("google-antigravity-cli CLI backend", () => {
     });
   });
 
-  it("dynamically resolves --print-timeout from model/backend config", () => {
+  it("dynamically resolves --print-timeout and optional streaming flags", () => {
     const baseArgs = ["--print", "{prompt}", "--print-timeout", "30m0s"];
 
     // 1. Model-specific timeout
@@ -68,13 +69,14 @@ describe("google-antigravity-cli CLI backend", () => {
     });
     expect(res1).toEqual(["--print", "{prompt}", "--print-timeout", "900s"]);
 
-    // 2. cliBackends explicit printTimeout
+    // 2. Optional streaming enabled in cliBackends
     const res2 = resolveGoogleAntigravityExecutionArgs({
       config: {
         agents: {
           defaults: {
             cliBackends: {
               "google-antigravity-cli": {
+                stream: true,
                 printTimeout: "15m0s",
               },
             },
@@ -90,7 +92,34 @@ describe("google-antigravity-cli CLI backend", () => {
       useResume: false,
       baseArgs,
     });
-    expect(res2).toEqual(["--print", "{prompt}", "--print-timeout", "15m0s"]);
+    expect(res2).toEqual([
+      "--print",
+      "{prompt}",
+      "--print-timeout",
+      "15m0s",
+      "--output-format",
+      "stream-json",
+    ]);
+  });
+
+  it("normalizes output mode to jsonl when streaming is configured", () => {
+    const backend = buildGoogleAntigravityCliBackend();
+    const normalized = normalizeGoogleAntigravityBackendConfig(backend.config, {
+      backendId: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+      config: {
+        agents: {
+          defaults: {
+            cliBackends: {
+              "google-antigravity-cli": {
+                stream: true,
+              },
+            },
+          },
+        },
+      } as any,
+    });
+
+    expect(normalized.output).toBe("jsonl");
   });
 
   it("forwards ANTIGRAVITY_USER_DATA_DIR and clears raw Google API credentials", async () => {

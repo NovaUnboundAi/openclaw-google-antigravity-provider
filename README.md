@@ -81,6 +81,29 @@ Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
             "id": "agy"
           }
         }
+      },
+      "cliBackends": {
+        "google-antigravity-cli": {
+          "stream": true
+        }
+      }
+    }
+  }
+}
+```
+
+### Optional: Real-Time Thought & Text Streaming
+
+To stream thinking and response deltas in real-time to the OpenClaw Web UI, enable `stream: true` under `agents.defaults.cliBackends.google-antigravity-cli`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "cliBackends": {
+        "google-antigravity-cli": {
+          "stream": true
+        }
       }
     }
   }
