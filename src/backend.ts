@@ -246,7 +246,9 @@ export function parseGoogleAntigravityJsonlEvent(
     }
   }
 
-  if (events.length === 0) return null;
+  if (events.length === 0) {
+    return typeof record.event === "string" ? [] : null;
+  }
   if (events.length === 1) return events[0];
   return events;
 }
