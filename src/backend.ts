@@ -102,12 +102,153 @@ export async function resolveCachedConversationId(params: {
   return undefined;
 }
 
-function resolvePluginConfig(cfg?: Record<string, any>, providerId?: string): Record<string, any> | undefined {
+function resolvePluginConfig(
+  cfg?: Record<string, any>,
+  providerId?: string,
+): Record<string, any> | undefined {
   return (
     cfg?.plugins?.entries?.[providerId ?? GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
     cfg?.plugins?.entries?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
     cfg?.plugins?.entries?.["agy"]?.config
   );
+}
+
+export type ParsedCliBackendEvent =
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
+  | {
+      kind: "toolStart";
+      toolCallId: string;
+      name: string;
+      args?: Record<string, unknown>;
+    }
+  | {
+      kind: "toolResult";
+      toolCallId: string;
+      name?: string;
+      isError?: boolean;
+      result?: unknown;
+    }
+  | {
+      kind: "result";
+      text?: string;
+      sessionId?: string;
+      usage?: {
+        input?: number;
+        output?: number;
+        cacheRead?: number;
+        total?: number;
+      };
+      errorText?: string;
+    }
+  | { kind: "sessionId"; sessionId: string };
+
+export function parseGoogleAntigravityJsonlEvent(
+  line: string,
+  _ctx?: { backendId: string; backend: Readonly<CliBackendConfig> },
+): ParsedCliBackendEvent | readonly ParsedCliBackendEvent[] | null {
+  const trimmed = line.trim();
+  if (!trimmed || !trimmed.startsWith("{")) {
+    return null;
+  }
+
+  let record: any;
+  try {
+    record = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+
+  const events: ParsedCliBackendEvent[] = [];
+
+  // 1. Session initialization
+  if (record.event === "init" && typeof record.conversation_id === "string") {
+    events.push({ kind: "sessionId", sessionId: record.conversation_id });
+  }
+
+  // 2. Incremental step updates (thinking, text, and tools)
+  if (record.event === "step_update" && record.step_update) {
+    const step = record.step_update;
+
+    // Reasoning / thinking deltas
+    const thoughtDelta =
+      step.thought_delta ??
+      step.thinking_delta ??
+      step.reasoning_delta ??
+      (step.step_type === "thinking" ? (step.delta ?? step.text) : undefined);
+    if (typeof thoughtDelta === "string" && thoughtDelta.length > 0) {
+      events.push({ kind: "thinking", text: thoughtDelta });
+    }
+
+    // Response text deltas
+    const textDelta =
+      step.text_delta ??
+      (step.step_type === "agent_response" ? (step.delta ?? step.text_delta) : undefined);
+    if (typeof textDelta === "string" && textDelta.length > 0) {
+      events.push({ kind: "text", text: textDelta });
+    }
+
+    // Tool execution lifecycle
+    if (step.step_type === "tool") {
+      const toolCallId = `call_${step.step_index ?? Date.now()}`;
+      const toolName = step.tool_name ?? step.tool_info?.name ?? "tool";
+
+      if (step.state === "ACTIVE") {
+        events.push({
+          kind: "toolStart",
+          toolCallId,
+          name: toolName,
+          args: step.tool_info?.parameters,
+        });
+      } else if (step.state === "DONE" || step.state === "ERROR") {
+        events.push({
+          kind: "toolResult",
+          toolCallId,
+          name: toolName,
+          isError: step.state === "ERROR",
+          result: step.tool_info?.output ?? step.output,
+        });
+      }
+    }
+  }
+
+  // 3. Terminal result or execution failure
+  if (record.event === "result" && record.result) {
+    const res = record.result;
+    const usage = res.usage
+      ? {
+          input: typeof res.usage.input_tokens === "number" ? res.usage.input_tokens : undefined,
+          output: typeof res.usage.output_tokens === "number" ? res.usage.output_tokens : undefined,
+          cacheRead:
+            typeof res.usage.cache_read_tokens === "number"
+              ? res.usage.cache_read_tokens
+              : undefined,
+          total: typeof res.usage.total_tokens === "number" ? res.usage.total_tokens : undefined,
+        }
+      : undefined;
+
+    if (res.status === "ERROR" || res.status === "FAILED") {
+      events.push({
+        kind: "result",
+        errorText: res.error || res.message || "Antigravity CLI execution error",
+      });
+    } else {
+      events.push({
+        kind: "result",
+        text: typeof res.response === "string" ? res.response : "",
+        sessionId: typeof res.conversation_id === "string" ? res.conversation_id : undefined,
+        usage,
+      });
+    }
+  }
+
+  if (events.length === 0) return null;
+  if (events.length === 1) return events[0];
+  return events;
 }
 
 export function normalizeGoogleAntigravityBackendConfig(
@@ -133,6 +274,7 @@ export function normalizeGoogleAntigravityBackendConfig(
     return {
       ...config,
       output: "jsonl",
+      resumeOutput: "jsonl",
     };
   }
 
@@ -191,7 +333,7 @@ export function buildGoogleAntigravityCliBackend(
   const userDataDir = resolveAntigravityDataDir(env);
   const conversationCachePath = path.join(userDataDir, "cache", "last_conversations.json");
 
-  return {
+  const backend: CliBackendPlugin = {
     id: backendId,
     modelProvider: backendId,
     liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash-medium` },
@@ -288,4 +430,8 @@ export function buildGoogleAntigravityCliBackend(
       serialize: true,
     },
   };
+
+  (backend as any).parseJsonlEvent = parseGoogleAntigravityJsonlEvent;
+
+  return backend;
 }

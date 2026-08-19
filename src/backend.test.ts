@@ -4,16 +4,18 @@ import {
   GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   normalizeGoogleAntigravityBackendConfig,
+  parseGoogleAntigravityJsonlEvent,
   resolveGoogleAntigravityExecutionArgs,
 } from "./backend.js";
 
 describe("google-antigravity-cli CLI backend", () => {
-  it("declares the CLI backend structure with 30m0s default timeout", () => {
+  it("declares the CLI backend structure with 30m0s default timeout and parseJsonlEvent", () => {
     const backend = buildGoogleAntigravityCliBackend();
 
     expect(backend.id).toBe(GOOGLE_ANTIGRAVITY_PROVIDER_ID);
     expect(backend.nativeToolMode).toBe("always-on");
     expect(backend.ownsNativeCompaction).toBe(true);
+    expect(typeof (backend as any).parseJsonlEvent).toBe("function");
     expect(backend.config).toEqual(
       expect.objectContaining({
         command: "agy",
@@ -69,13 +71,13 @@ describe("google-antigravity-cli CLI backend", () => {
     });
     expect(res1).toEqual(["--print", "{prompt}", "--print-timeout", "900s"]);
 
-    // 2. Optional streaming enabled in cliBackends
+    // 2. Optional streaming enabled in plugin config
     const res2 = resolveGoogleAntigravityExecutionArgs({
       config: {
-        agents: {
-          defaults: {
-            cliBackends: {
-              "google-antigravity-cli": {
+        plugins: {
+          entries: {
+            "google-antigravity-cli": {
+              config: {
                 stream: true,
                 printTimeout: "15m0s",
               },
@@ -107,10 +109,10 @@ describe("google-antigravity-cli CLI backend", () => {
     const normalized = normalizeGoogleAntigravityBackendConfig(backend.config, {
       backendId: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
       config: {
-        agents: {
-          defaults: {
-            cliBackends: {
-              "google-antigravity-cli": {
+        plugins: {
+          entries: {
+            "google-antigravity-cli": {
+              config: {
                 stream: true,
               },
             },
@@ -120,6 +122,135 @@ describe("google-antigravity-cli CLI backend", () => {
     });
 
     expect(normalized.output).toBe("jsonl");
+    expect((normalized as any).resumeOutput).toBe("jsonl");
+  });
+
+  describe("parseGoogleAntigravityJsonlEvent", () => {
+    const ctx = {
+      backendId: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+      backend: buildGoogleAntigravityCliBackend().config,
+    };
+
+    it("parses init event as sessionId", () => {
+      const line = JSON.stringify({
+        event: "init",
+        conversation_id: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+        init: { model: "gemini-3.7-flash-high" },
+      });
+      const parsed = parseGoogleAntigravityJsonlEvent(line, ctx);
+      expect(parsed).toEqual({
+        kind: "sessionId",
+        sessionId: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+      });
+    });
+
+    it("parses thinking and text deltas from step_update", () => {
+      // Thinking delta
+      const thinkingLine = JSON.stringify({
+        event: "step_update",
+        step_update: {
+          step_index: 2,
+          step_type: "thinking",
+          thought_delta: "Analyzing problem constraints...",
+        },
+      });
+      expect(parseGoogleAntigravityJsonlEvent(thinkingLine, ctx)).toEqual({
+        kind: "thinking",
+        text: "Analyzing problem constraints...",
+      });
+
+      // Text delta
+      const textLine = JSON.stringify({
+        event: "step_update",
+        step_update: {
+          step_index: 2,
+          step_type: "agent_response",
+          text_delta: "The answer is 42.",
+        },
+      });
+      expect(parseGoogleAntigravityJsonlEvent(textLine, ctx)).toEqual({
+        kind: "text",
+        text: "The answer is 42.",
+      });
+    });
+
+    it("parses tool start and result lifecycle from step_update", () => {
+      // Tool Start
+      const toolStartLine = JSON.stringify({
+        event: "step_update",
+        step_update: {
+          conversation_id: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+          step_index: 3,
+          state: "ACTIVE",
+          step_type: "tool",
+          tool_name: "view_file",
+          tool_info: {
+            name: "view_file",
+            parameters: { AbsolutePath: "transcript.jsonl" },
+          },
+        },
+      });
+      expect(parseGoogleAntigravityJsonlEvent(toolStartLine, ctx)).toEqual({
+        kind: "toolStart",
+        toolCallId: "call_3",
+        name: "view_file",
+        args: { AbsolutePath: "transcript.jsonl" },
+      });
+
+      // Tool Result
+      const toolDoneLine = JSON.stringify({
+        event: "step_update",
+        step_update: {
+          conversation_id: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+          step_index: 3,
+          state: "DONE",
+          step_type: "tool",
+          tool_name: "view_file",
+          tool_info: {
+            name: "view_file",
+            parameters: { AbsolutePath: "transcript.jsonl" },
+            output: "4 lines, 2594 bytes",
+          },
+        },
+      });
+      expect(parseGoogleAntigravityJsonlEvent(toolDoneLine, ctx)).toEqual({
+        kind: "toolResult",
+        toolCallId: "call_3",
+        name: "view_file",
+        isError: false,
+        result: "4 lines, 2594 bytes",
+      });
+    });
+
+    it("parses terminal result and usage metrics", () => {
+      const line = JSON.stringify({
+        event: "result",
+        result: {
+          conversation_id: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+          status: "SUCCESS",
+          response: "Final solution text",
+          usage: {
+            input_tokens: 19525,
+            output_tokens: 315,
+            thinking_tokens: 224,
+            cache_read_tokens: 0,
+            total_tokens: 19840,
+          },
+        },
+      });
+      const parsed = parseGoogleAntigravityJsonlEvent(line, ctx);
+      expect(parsed).toEqual({
+        kind: "result",
+        text: "Final solution text",
+        sessionId: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+        usage: {
+          input: 19525,
+          output: 315,
+          cacheRead: 0,
+          total: 19840,
+        },
+      });
+    });
   });
 
   it("forwards ANTIGRAVITY_USER_DATA_DIR and clears raw Google API credentials", async () => {
