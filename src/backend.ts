@@ -104,11 +104,15 @@ export function resolveGoogleAntigravityExecutionArgs(
   context: CliBackendResolveExecutionArgsContext,
 ): string[] {
   const cfg = context.config as Record<string, any> | undefined;
-  const backendConfig = cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID];
+  const providerId = context.provider || GOOGLE_ANTIGRAVITY_PROVIDER_ID;
+  const backendConfig =
+    cfg?.agents?.defaults?.cliBackends?.[providerId] ??
+    cfg?.agents?.defaults?.cliBackends?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID];
 
   const configuredTimeout =
     backendConfig?.printTimeout ??
     cfg?.agents?.defaults?.models?.[context.modelId]?.params?.timeoutSeconds ??
+    cfg?.agents?.defaults?.models?.[`${providerId}/*`]?.params?.timeoutSeconds ??
     cfg?.agents?.defaults?.models?.[`${GOOGLE_ANTIGRAVITY_PROVIDER_ID}/*`]?.params?.timeoutSeconds ??
     cfg?.agents?.defaults?.timeoutSeconds;
 
