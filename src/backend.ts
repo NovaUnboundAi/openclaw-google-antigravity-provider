@@ -232,10 +232,19 @@ export function parseGoogleAntigravityJsonlEvent(
       : undefined;
 
     if (res.status === "ERROR" || res.status === "FAILED") {
-      events.push({
-        kind: "result",
-        errorText: res.error || res.message || "Antigravity CLI execution error",
-      });
+      if (typeof res.response === "string" && res.response.trim().length > 0) {
+        events.push({
+          kind: "result",
+          text: res.response,
+          sessionId: typeof res.conversation_id === "string" ? res.conversation_id : undefined,
+          usage,
+        });
+      } else {
+        events.push({
+          kind: "result",
+          errorText: res.error || res.message || "Antigravity CLI execution error",
+        });
+      }
     } else {
       events.push({
         kind: "result",

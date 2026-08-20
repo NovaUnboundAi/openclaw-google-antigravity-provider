@@ -250,6 +250,23 @@ describe("google-antigravity-cli CLI backend", () => {
           total: 19840,
         },
       });
+
+      // Status ERROR with response text
+      const errorWithResponseLine = JSON.stringify({
+        event: "result",
+        result: {
+          conversation_id: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+          status: "ERROR",
+          response: "Recovered partial answer text",
+          error: "Permission denied for read_file",
+        },
+      });
+      expect(parseGoogleAntigravityJsonlEvent(errorWithResponseLine, ctx)).toEqual({
+        kind: "result",
+        text: "Recovered partial answer text",
+        sessionId: "9277298e-cc25-4e13-a4bf-a98358aeef34",
+        usage: undefined,
+      });
     });
   });
 
