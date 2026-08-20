@@ -1,9 +1,18 @@
 {
-  "name": "openclaw-google-antigravity-provider",
+  "name": "google-antigravity-provider",
   "version": "0.2.0",
-  "private": true,
   "description": "Google Antigravity CLI (agy) provider and agent runtime for OpenClaw",
   "type": "module",
+  "author": "Jason Allen O'Neal",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jason-allen-oneal/openclaw-google-antigravity-provider.git"
+  },
+  "homepage": "https://github.com/jason-allen-oneal/openclaw-google-antigravity-provider#readme",
+  "bugs": {
+    "url": "https://github.com/jason-allen-oneal/openclaw-google-antigravity-provider/issues"
+  },
   "files": [
     "dist",
     "openclaw.plugin.json",

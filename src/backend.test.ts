@@ -278,4 +278,68 @@ describe("google-antigravity-cli CLI backend", () => {
       }),
     );
   });
+
+  describe("manualCompaction", () => {
+    it("builds default and custom compaction prompts", () => {
+      const backend = buildGoogleAntigravityCliBackend();
+      expect(backend.manualCompaction).toBeDefined();
+      expect(backend.manualCompaction?.input).toBe("arg");
+
+      expect(backend.manualCompaction?.buildPrompt()).toContain("Do not execute any tools");
+      expect(backend.manualCompaction?.buildPrompt("preserve architectural decisions")).toContain(
+        "preserve architectural decisions",
+      );
+    });
+
+    it("validates successful and error process outputs", () => {
+      const backend = buildGoogleAntigravityCliBackend();
+      const validate = backend.manualCompaction?.validateOutput;
+      expect(validate).toBeDefined();
+
+      // Empty output
+      expect(validate!("")).toEqual({
+        ok: false,
+        reason: "Antigravity CLI returned empty output during compaction.",
+      });
+
+      // Stream-json success
+      const successJson = JSON.stringify({
+        event: "result",
+        result: { status: "SUCCESS", response: "Summary of conversation" },
+      });
+      expect(validate!(successJson)).toEqual({ ok: true });
+
+      // Stream-json error
+      const errorJson = JSON.stringify({
+        event: "result",
+        result: { status: "ERROR", error: "Context limit exceeded" },
+      });
+      expect(validate!(errorJson)).toEqual({
+        ok: false,
+        reason: "Context limit exceeded",
+      });
+
+      // Conversation not found in text
+      expect(validate!("warning: conversation \"a6b1a47baa29\" not found")).toEqual({
+        ok: false,
+        reason:
+          "Antigravity native conversation not found for this session. Send a message first to establish the conversation before compacting.",
+      });
+
+      // Context canceled in JSON
+      const canceledJson = JSON.stringify({
+        event: "result",
+        result: { status: "ERROR", error: "context canceled" },
+      });
+      expect(validate!(canceledJson)).toEqual({
+        ok: false,
+        reason:
+          "Antigravity native conversation not found or canceled. Send a message first to initialize the native conversation before compacting.",
+      });
+
+      // Plain text output
+      expect(validate!("Here is the summary of the conversation...")).toEqual({ ok: true });
+    });
+  });
 });
+

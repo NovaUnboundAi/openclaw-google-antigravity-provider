@@ -434,6 +434,64 @@ export function buildGoogleAntigravityCliBackend(
   };
 
   (backend as any).parseJsonlEvent = parseGoogleAntigravityJsonlEvent;
+  (backend as any).manualCompaction = {
+    buildPrompt: (customInstructions?: string): string => {
+      const instructions = customInstructions?.trim();
+      const customPart = instructions ? ` Focus on: ${instructions}` : "";
+      return `Do not execute any tools or commands. Provide a concise summary and compaction of this conversation so far, preserving key decisions, active context, and current progress.${customPart}`;
+    },
+    input: "arg",
+    validateOutput: (rawOutput: string): { ok: boolean; reason?: string } => {
+      const trimmed = rawOutput.trim();
+      if (!trimmed) {
+        return {
+          ok: false,
+          reason: "Antigravity CLI returned empty output during compaction.",
+        };
+      }
+      if (
+        trimmed.includes("not found") &&
+        (trimmed.includes("conversation") || trimmed.includes("warning: conversation"))
+      ) {
+        return {
+          ok: false,
+          reason:
+            "Antigravity native conversation not found for this session. Send a message first to establish the conversation before compacting.",
+        };
+      }
+      for (const line of trimmed.split("\n")) {
+        const lineTrimmed = line.trim();
+        if (!lineTrimmed.startsWith("{")) continue;
+        try {
+          const record = JSON.parse(lineTrimmed);
+          if (record.event === "result" && record.result) {
+            if (record.result.status === "ERROR" || record.result.status === "FAILED") {
+              const err =
+                record.result.error ||
+                record.result.message ||
+                "Antigravity compaction error";
+              if (
+                err.toLowerCase().includes("context canceled") ||
+                err.toLowerCase().includes("not found")
+              ) {
+                return {
+                  ok: false,
+                  reason:
+                    "Antigravity native conversation not found or canceled. Send a message first to initialize the native conversation before compacting.",
+                };
+              }
+              return {
+                ok: false,
+                reason: err,
+              };
+            }
+            return { ok: true };
+          }
+        } catch {}
+      }
+      return { ok: true };
+    },
+  };
 
   return backend;
 }
