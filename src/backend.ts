@@ -321,16 +321,16 @@ export function resolveGoogleAntigravityExecutionArgs(
     args.push("--print-timeout", timeoutStr);
   }
 
-  // Optional streaming mode via config
-  const streamEnabled =
-    backendConfig?.stream === true ||
-    backendConfig?.streaming === true ||
-    backendConfig?.output === "jsonl" ||
-    backendConfig?.outputFormat === "stream-json" ||
-    pluginConfig?.stream === true ||
-    pluginConfig?.streaming === true;
+  // Streaming/JSONL mode is enabled by default to capture conversation IDs and live deltas
+  const streamDisabled =
+    backendConfig?.stream === false ||
+    backendConfig?.streaming === false ||
+    pluginConfig?.stream === false ||
+    pluginConfig?.streaming === false ||
+    backendConfig?.output === "text" ||
+    backendConfig?.outputFormat === "text";
 
-  if (streamEnabled && !args.includes("--output-format")) {
+  if (!streamDisabled && !args.includes("--output-format")) {
     args.push("--output-format", "stream-json");
   }
 
@@ -421,6 +421,8 @@ export function buildGoogleAntigravityCliBackend(
         "{prompt}",
         "--print-timeout",
         DEFAULT_PRINT_TIMEOUT,
+        "--output-format",
+        "stream-json",
         "--dangerously-skip-permissions",
       ],
       resumeArgs: [
@@ -430,9 +432,11 @@ export function buildGoogleAntigravityCliBackend(
         "{prompt}",
         "--print-timeout",
         DEFAULT_PRINT_TIMEOUT,
+        "--output-format",
+        "stream-json",
         "--dangerously-skip-permissions",
       ],
-      output: "text",
+      output: "jsonl",
       input: "arg",
       modelArg: "--model",
       modelAliases: GOOGLE_ANTIGRAVITY_MODEL_ALIASES,

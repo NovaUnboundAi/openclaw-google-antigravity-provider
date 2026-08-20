@@ -19,7 +19,15 @@ describe("google-antigravity-cli CLI backend", () => {
     expect(backend.config).toEqual(
       expect.objectContaining({
         command: "agy",
-        args: ["--print", "{prompt}", "--print-timeout", "30m0s", "--dangerously-skip-permissions"],
+        args: [
+          "--print",
+          "{prompt}",
+          "--print-timeout",
+          "30m0s",
+          "--output-format",
+          "stream-json",
+          "--dangerously-skip-permissions",
+        ],
         resumeArgs: [
           "--conversation",
           "{sessionId}",
@@ -27,10 +35,12 @@ describe("google-antigravity-cli CLI backend", () => {
           "{prompt}",
           "--print-timeout",
           "30m0s",
+          "--output-format",
+          "stream-json",
           "--dangerously-skip-permissions",
         ],
         input: "arg",
-        output: "text",
+        output: "jsonl",
         modelArg: "--model",
         sessionMode: "existing",
         serialize: true,
@@ -47,7 +57,7 @@ describe("google-antigravity-cli CLI backend", () => {
   it("dynamically resolves --print-timeout and optional streaming flags", () => {
     const baseArgs = ["--print", "{prompt}", "--print-timeout", "30m0s"];
 
-    // 1. Model-specific timeout
+    // 1. Model-specific timeout with default stream-json
     const res1 = resolveGoogleAntigravityExecutionArgs({
       config: {
         agents: {
@@ -69,9 +79,16 @@ describe("google-antigravity-cli CLI backend", () => {
       useResume: false,
       baseArgs,
     });
-    expect(res1).toEqual(["--print", "{prompt}", "--print-timeout", "900s"]);
+    expect(res1).toEqual([
+      "--print",
+      "{prompt}",
+      "--print-timeout",
+      "900s",
+      "--output-format",
+      "stream-json",
+    ]);
 
-    // 2. Optional streaming enabled in plugin config
+    // 2. Custom print timeout in plugin config
     const res2 = resolveGoogleAntigravityExecutionArgs({
       config: {
         plugins: {
@@ -101,6 +118,35 @@ describe("google-antigravity-cli CLI backend", () => {
       "15m0s",
       "--output-format",
       "stream-json",
+    ]);
+
+    // 3. Streaming explicitly disabled
+    const res3 = resolveGoogleAntigravityExecutionArgs({
+      config: {
+        plugins: {
+          entries: {
+            "google-antigravity-cli": {
+              config: {
+                stream: false,
+              },
+            },
+          },
+        },
+      } as any,
+      workspaceDir: "/tmp",
+      provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+      modelId: "gemini-3.7-flash-medium",
+      authProfileId: undefined,
+      thinkingLevel: undefined,
+      executionMode: "agent",
+      useResume: false,
+      baseArgs,
+    });
+    expect(res3).toEqual([
+      "--print",
+      "{prompt}",
+      "--print-timeout",
+      "30m0s",
     ]);
   });
 
