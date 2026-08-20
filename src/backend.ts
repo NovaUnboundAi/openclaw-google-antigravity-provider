@@ -108,8 +108,7 @@ function resolvePluginConfig(
 ): Record<string, any> | undefined {
   return (
     cfg?.plugins?.entries?.[providerId ?? GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
-    cfg?.plugins?.entries?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config ??
-    cfg?.plugins?.entries?.["agy"]?.config
+    cfg?.plugins?.entries?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID]?.config
   );
 }
 

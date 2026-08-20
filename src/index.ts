@@ -240,15 +240,6 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       staticCatalog: () => buildModelCatalogRows("google-antigravity-cli", "static"),
       liveCatalog: () => buildModelCatalogRows("google-antigravity-cli", "live"),
     });
-
-    api.registerProvider(buildGoogleAntigravityProvider("agy"));
-    api.registerCliBackend(buildGoogleAntigravityCliBackend("agy"));
-    api.registerModelCatalogProvider({
-      provider: "agy",
-      kinds: ["text"],
-      staticCatalog: () => buildModelCatalogRows("agy", "static"),
-      liveCatalog: () => buildModelCatalogRows("agy", "live"),
-    });
   },
 });
 

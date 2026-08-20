@@ -8,7 +8,6 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 - **Dynamic Configurable Timeouts:** Automatically derives `--print-timeout` dynamically from `timeoutSeconds` or custom plugin settings (default: `30m0s`), preventing premature agent turn termination.
 - **Full Model Support:** Gemini 3.7 Flash (High / Medium / Low), Gemini 3.6 Flash (High / Medium / Low), Gemini 3.5 Flash, Gemini 3.1 Pro (High / Low), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B.
 - **Synthetic Local Auth:** Seamlessly uses local signed-in `agy` credentials with zero expiring tokens or stored secrets in OpenClaw.
-- **Dual Provider Names:** Supports both `google-antigravity-cli/*` and short alias `agy/*`.
 - **Sanitized Execution Environment:** Automatically isolates user data via `ANTIGRAVITY_USER_DATA_DIR` and scrubs conflicting ambient Google API keys.
 - **Preflight Probing:** Validates local `agy` CLI health, executable availability, and required command-line flags on setup.
 
@@ -74,11 +73,6 @@ Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
         "google-antigravity-cli/*": {
           "agentRuntime": {
             "id": "google-antigravity-cli"
-          }
-        },
-        "agy/*": {
-          "agentRuntime": {
-            "id": "agy"
           }
         }
       },

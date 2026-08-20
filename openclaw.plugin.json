@@ -8,16 +8,13 @@
   },
   "enabledByDefault": true,
   "providers": [
-    "google-antigravity-cli",
-    "agy"
+    "google-antigravity-cli"
   ],
   "cliBackends": [
-    "google-antigravity-cli",
-    "agy"
+    "google-antigravity-cli"
   ],
   "syntheticAuthRefs": [
-    "google-antigravity-cli",
-    "agy"
+    "google-antigravity-cli"
   ],
   "nonSecretAuthMarkers": [
     "antigravity-local-session"
@@ -25,20 +22,6 @@
   "modelIdNormalization": {
     "providers": {
       "google-antigravity-cli": {
-        "aliases": {
-          "flash": "gemini-3.7-flash-medium",
-          "flash-high": "gemini-3.7-flash-high",
-          "flash-medium": "gemini-3.7-flash-medium",
-          "flash-low": "gemini-3.7-flash-low",
-          "pro": "gemini-3.1-pro-high",
-          "pro-low": "gemini-3.1-pro-low",
-          "pro-high": "gemini-3.1-pro-high",
-          "sonnet": "claude-sonnet-4.6",
-          "opus": "claude-opus-4.6",
-          "gpt": "gpt-oss-120b"
-        }
-      },
-      "agy": {
         "aliases": {
           "flash": "gemini-3.7-flash-medium",
           "flash-high": "gemini-3.7-flash-high",
@@ -179,130 +162,6 @@
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
           }
         ]
-      },
-      "agy": {
-        "baseUrl": "https://antigravity.invalid",
-        "api": "google-generative-ai",
-        "defaultModel": "gemini-3.7-flash-medium",
-        "models": [
-          {
-            "id": "gemini-3.7-flash-high",
-            "name": "Gemini 3.7 Flash (High)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.7-flash-medium",
-            "name": "Gemini 3.7 Flash (Medium)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.7-flash-low",
-            "name": "Gemini 3.7 Flash (Low)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.6-flash-high",
-            "name": "Gemini 3.6 Flash (High)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.6-flash-medium",
-            "name": "Gemini 3.6 Flash (Medium)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.6-flash-low",
-            "name": "Gemini 3.6 Flash (Low)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.5-flash-high",
-            "name": "Gemini 3.5 Flash (High)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.5-flash-medium",
-            "name": "Gemini 3.5 Flash (Medium)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.5-flash-low",
-            "name": "Gemini 3.5 Flash (Low)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.5-flash",
-            "name": "Gemini 3.5 Flash",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.1-pro-high",
-            "name": "Gemini 3.1 Pro (High)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.1-pro-low",
-            "name": "Gemini 3.1 Pro (Low)",
-            "input": ["text"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "claude-sonnet-4.6",
-            "name": "Claude Sonnet 4.6 (Thinking)",
-            "input": ["text"],
-            "contextWindow": 200000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "claude-opus-4.6",
-            "name": "Claude Opus 4.6 (Thinking)",
-            "input": ["text"],
-            "contextWindow": 200000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gpt-oss-120b",
-            "name": "GPT-OSS 120B (Medium)",
-            "input": ["text"],
-            "contextWindow": 128000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          }
-        ]
       }
     }
   },
@@ -313,17 +172,10 @@
         "envVars": [
           "ANTIGRAVITY_USER_DATA_DIR"
         ]
-      },
-      {
-        "id": "agy",
-        "envVars": [
-          "ANTIGRAVITY_USER_DATA_DIR"
-        ]
       }
     ],
     "cliBackends": [
-      "google-antigravity-cli",
-      "agy"
+      "google-antigravity-cli"
     ]
   },
   "providerAuthChoices": [
@@ -334,19 +186,6 @@
       "choiceLabel": "Google Antigravity CLI",
       "choiceHint": "Delegate agent turns to a local signed-in agy CLI",
       "groupId": "google-antigravity-cli",
-      "groupLabel": "Google Antigravity CLI",
-      "groupHint": "Local CLI runtime",
-      "onboardingScopes": [
-        "text-inference"
-      ]
-    },
-    {
-      "provider": "agy",
-      "method": "custom",
-      "choiceId": "agy",
-      "choiceLabel": "Google Antigravity CLI (agy)",
-      "choiceHint": "Delegate agent turns to a local signed-in agy CLI",
-      "groupId": "agy",
       "groupLabel": "Google Antigravity CLI",
       "groupHint": "Local CLI runtime",
       "onboardingScopes": [
