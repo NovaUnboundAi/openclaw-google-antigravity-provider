@@ -44,8 +44,7 @@ Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
     "mode": "merge",
     "providers": {
       "google-antigravity-cli": {
-        "baseUrl": "https://antigravity.invalid",
-        "apiKey": "antigravity-local-session",
+        "baseUrl": "http://antigravity.local",
         "api": "google-generative-ai",
         "models": [
           { "id": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)", "reasoning": true, "input": ["text"] },

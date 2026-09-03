@@ -36,7 +36,7 @@ function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntime
     name: meta.name,
     provider: providerId,
     api: "google-generative-ai",
-    baseUrl: "https://antigravity.invalid",
+    baseUrl: "http://antigravity.local",
     reasoning: meta.reasoning,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

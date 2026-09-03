@@ -40,7 +40,7 @@
   "modelCatalog": {
     "providers": {
       "google-antigravity-cli": {
-        "baseUrl": "https://antigravity.invalid",
+        "baseUrl": "http://antigravity.local",
         "api": "google-generative-ai",
         "defaultModel": "gemini-3.7-flash-medium",
         "models": [
