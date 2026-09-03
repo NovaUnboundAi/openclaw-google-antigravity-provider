@@ -3,9 +3,9 @@ import {
   type OpenClawPluginApi,
   type OpenClawPluginDefinition,
   type ProviderAuthContext,
+  type ProviderPlugin,
   type ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/plugin-entry";
-import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-model-shared";
 import {
   buildGoogleAntigravityCliBackend,
   GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,

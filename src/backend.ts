@@ -1,13 +1,17 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
-import type {
-  CliBackendConfig,
-  CliBackendNormalizeConfigContext,
-  CliBackendPlugin,
-  CliBackendResolveExecutionArgsContext,
-} from "openclaw/plugin-sdk/cli-backend";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
+
+type CliBackendPlugin = Parameters<OpenClawPluginApi["registerCliBackend"]>[0];
+type CliBackendConfig = CliBackendPlugin["config"];
+type CliBackendNormalizeConfigContext = Parameters<
+  NonNullable<CliBackendPlugin["normalizeConfig"]>
+>[1];
+type CliBackendResolveExecutionArgsContext = Parameters<
+  NonNullable<CliBackendPlugin["resolveExecutionArgs"]>
+>[0];
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =

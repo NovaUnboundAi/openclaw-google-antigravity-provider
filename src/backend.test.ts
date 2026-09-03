@@ -48,10 +48,21 @@ describe("google-antigravity-cli CLI backend", () => {
     );
     expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES).toMatchObject({
       flash: "gemini-3.7-flash-medium",
+      "gemini-3.8-flash-high": "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low": "gemini-3.8-flash-low",
       pro: "gemini-3.1-pro-high",
       "pro-high": "gemini-3.1-pro-high",
       sonnet: "claude-sonnet-4.6",
     });
+    expect(Object.keys(GOOGLE_ANTIGRAVITY_MODEL_ALIASES)).not.toEqual(
+      expect.arrayContaining([
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-high",
+        "gemini-3.5-flash-medium",
+        "gemini-3.5-flash-low",
+      ]),
+    );
   });
 
   it("dynamically resolves --print-timeout and optional streaming flags", () => {
@@ -405,4 +416,3 @@ describe("google-antigravity-cli CLI backend", () => {
     });
   });
 });
-
