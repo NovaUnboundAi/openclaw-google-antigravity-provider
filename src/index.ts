@@ -45,14 +45,43 @@ function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntime
   };
 }
 
-function buildAntigravityConfigPatch(providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID) {
-  // Wildcard mapping routes every Antigravity model ID through the CLI
-  // backend, so we don't need to enumerate them here — new models exposed
-  // by `agy` at runtime pick up the same routing automatically.
+async function buildAntigravityConfigPatch(
+  providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+): Promise<Record<string, unknown>> {
+  // OpenClaw's `/models` picker (`src/auto-reply/reply/commands-models.ts`,
+  // v2026.8.1) instantiates its auth checker with
+  // `allowPluginSyntheticAuth: false`, which means our plugin-declared
+  // `syntheticAuthRefs` is ignored in that code path. The synthetic-auth
+  // check then falls back to requiring
+  // `providerConfig.models.length > 0`. Without that, `/models` never
+  // surfaces this provider, even though its plugin-registered catalog is
+  // populated. Snapshot the current live catalog (or the static fallback)
+  // into `models.providers.<id>.models[]` so the picker sees it.
+  const live = await getLiveAntigravityModels();
+  const models = live?.models ?? STATIC_MODEL_FALLBACK;
   return {
+    models: {
+      providers: {
+        [providerId]: {
+          baseUrl: "http://antigravity.local",
+          api: "google-generative-ai",
+          models: models.map((model) => ({
+            id: model.id,
+            name: model.name,
+            reasoning: model.reasoning,
+            input: ["text"] as const,
+            contextWindow: model.contextWindow,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          })),
+        },
+      },
+    },
     agents: {
       defaults: {
         models: {
+          // Wildcard mapping routes every Antigravity model ID through the
+          // CLI backend, so new models Google ships without a plugin release
+          // pick up the same routing automatically.
           [`${providerId}/*`]: { agentRuntime: { id: providerId } },
         },
       },
@@ -143,7 +172,7 @@ export function buildGoogleAntigravityProvider(
           return {
             profiles: [],
             defaultModel: GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
-            configPatch: buildAntigravityConfigPatch(providerId),
+            configPatch: await buildAntigravityConfigPatch(providerId),
             notes: [
               "Uses the local signed-in agy runtime. OpenClaw does not import or persist Antigravity OAuth tokens.",
               "Prompts are passed through agy --print as command-line arguments.",
