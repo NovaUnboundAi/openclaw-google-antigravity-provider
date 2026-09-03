@@ -22,6 +22,7 @@ import {
   type AntigravityModel,
 } from "./models.js";
 import { probeAgy, type AgyProbeResult } from "./probe.js";
+import { registerAntigravitySessionCatalog } from "./session-catalog.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 
@@ -242,6 +243,10 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         buildModelCatalogRows("google-antigravity-cli", "static", STATIC_MODEL_FALLBACK),
       liveCatalog: listGoogleAntigravityCatalog,
     });
+    // Surfaces existing agy conversations (read-only) in the OpenClaw
+    // sidebar. Continues resume via `agy --conversation <id>` through
+    // the CLI backend registered above.
+    registerAntigravitySessionCatalog(api);
   },
 });
 
