@@ -4,8 +4,9 @@
   "description": "Persistent agent turns and model routing through a local signed-in Google Antigravity agy CLI.",
   "icon": "https://cdn.simpleicons.org/google",
   "activation": {
-    "onStartup": false
+    "onStartup": true
   },
+  "providerCatalogEntry": "./provider-discovery.ts",
   "enabledByDefault": true,
   "providers": [
     "google-antigravity-cli"
@@ -38,6 +39,9 @@
     }
   },
   "modelCatalog": {
+    "discovery": {
+      "google-antigravity-cli": "runtime"
+    },
     "providers": {
       "google-antigravity-cli": {
         "baseUrl": "https://antigravity.invalid",
