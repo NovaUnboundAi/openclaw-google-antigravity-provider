@@ -202,6 +202,44 @@ describe("SessionCatalogProvider read()", () => {
   });
 });
 
+describe("SessionCatalogProvider copyToGatewaySession()", () => {
+  let dataDir = "";
+  beforeEach(() => {
+    dataDir = makeTempDataDir();
+  });
+  afterEach(() => {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("returns the conversation label as displayName when the summary exists", async () => {
+    seedSummariesDb(dataDir, [
+      { conversationId: "abcd1234", title: "Rebuild release pipeline" },
+    ]);
+    const provider = buildAntigravitySessionCatalog({ dataDir });
+    const result = await provider.copyToGatewaySession!({
+      threadId: "abcd1234",
+      hostId: "google-antigravity-cli-local",
+    });
+    expect(result).toEqual({ displayName: "Rebuild release pipeline" });
+  });
+
+  it("returns an empty hint when no summary is on disk", async () => {
+    const provider = buildAntigravitySessionCatalog({ dataDir });
+    const result = await provider.copyToGatewaySession!({
+      threadId: "unknown-conversation",
+      hostId: "google-antigravity-cli-local",
+    });
+    expect(result).toEqual({});
+  });
+
+  it("rejects an empty conversation id", async () => {
+    const provider = buildAntigravitySessionCatalog({ dataDir });
+    await expect(
+      provider.copyToGatewaySession!({ threadId: "", hostId: "google-antigravity-cli-local" }),
+    ).rejects.toThrow(/conversation id/);
+  });
+});
+
 describe("SessionCatalogProvider continueSession()", () => {
   it("returns a session key bound to the conversation id", async () => {
     const provider = buildAntigravitySessionCatalog({ dataDir: "/tmp/does-not-matter" });

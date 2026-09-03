@@ -266,12 +266,37 @@ export function buildAntigravitySessionCatalog(params?: {
     };
   };
 
+  // Cross-runtime import: openclaw seeds a fresh Gateway session with
+  // this catalog's transcript (fetched via the `read` above) so the user
+  // can continue in any model/provider available in openclaw — including
+  // ones agy itself cannot route to. Our contribution is the display hint;
+  // openclaw drives the transcript-import handshake automatically.
+  const copyToGatewaySession = async (
+    copyParams: SessionCatalogContinueProviderParams,
+  ): Promise<{ displayName?: string; preferredModel?: string }> => {
+    const conversationId = copyParams.threadId?.trim();
+    if (!conversationId) {
+      throw new Error("google-antigravity-cli: copy requires a conversation id");
+    }
+    let displayName: string | undefined;
+    try {
+      const summaries = readAntigravityConversationSummaries(dataDir);
+      const summary = summaries.find((row) => row.conversationId === conversationId);
+      if (summary) displayName = conversationSummaryLabel(summary);
+    } catch {
+      // Missing/unreadable summaries are non-fatal; the caller uses a
+      // generic default when displayName is absent.
+    }
+    return displayName ? { displayName } : {};
+  };
+
   return {
     id: ANTIGRAVITY_SESSION_CATALOG_ID,
     label: "Antigravity CLI",
     list,
     read,
     continueSession,
+    copyToGatewaySession,
   } as SessionCatalogProvider;
 }
 
