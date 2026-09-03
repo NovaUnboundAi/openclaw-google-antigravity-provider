@@ -97,7 +97,8 @@ export function parseAgyModelsOutput(text: string): AntigravityModel[] {
     models.push({
       id,
       name,
-      ...deriveModelMetadata(id, name),
+      reasoning: deriveReasoning(id, name),
+      contextWindow: deriveContextWindow(id),
     });
   }
   return models;
