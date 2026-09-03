@@ -50,7 +50,9 @@ export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
   },
 ];
 
-export const DEFAULT_LIVE_TIMEOUT_MS = 10_000;
+// `agy models` phones home to Google. Observed 15-20s on cold cache; 30s
+// gives headroom for slow networks without stalling the picker indefinitely.
+export const DEFAULT_LIVE_TIMEOUT_MS = 30_000;
 export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1_000;
 
 export function deriveContextWindow(id: string): number {

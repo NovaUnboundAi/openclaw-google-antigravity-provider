@@ -16,9 +16,12 @@ function toText(value: unknown): string {
 }
 
 export function runAgyHelp(command = "agy"): SpawnSyncReturns<string> {
+  // `agy --help` phones home to Google (version check + model catalog warm-up)
+  // and can take 15-20s on a cold cache. 5s was too aggressive and made the
+  // provider auth flow fail on a healthy install.
   return spawnSync(command, ["--help"], {
     encoding: "utf8",
-    timeout: 5000,
+    timeout: 30_000,
     maxBuffer: 1024 * 1024,
   });
 }
