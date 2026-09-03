@@ -4,6 +4,8 @@ import {
   type OpenClawPluginDefinition,
   type ProviderAuthContext,
   type ProviderRuntimeModel,
+  type UnifiedModelCatalogEntry,
+  type UnifiedModelCatalogProviderContext,
 } from "openclaw/plugin-sdk/plugin-entry";
 import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-model-shared";
 import {
@@ -11,128 +13,86 @@ import {
   GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
 } from "./backend.js";
+import {
+  clearAntigravityModelsCache,
+  DEFAULT_LIVE_TIMEOUT_MS,
+  deriveModelMetadata,
+  getLiveAntigravityModels,
+  STATIC_MODEL_FALLBACK,
+  type AntigravityModel,
+} from "./models.js";
 import { probeAgy, type AgyProbeResult } from "./probe.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 
-export const MODEL_DEFINITIONS = [
-  {
-    id: "gemini-3.7-flash-high",
-    name: "Gemini 3.7 Flash (High)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.7-flash-medium",
-    name: "Gemini 3.7 Flash (Medium)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.7-flash-low",
-    name: "Gemini 3.7 Flash (Low)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.6-flash-high",
-    name: "Gemini 3.6 Flash (High)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.6-flash-medium",
-    name: "Gemini 3.6 Flash (Medium)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.6-flash-low",
-    name: "Gemini 3.6 Flash (Low)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.5-flash-high",
-    name: "Gemini 3.5 Flash (High)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.5-flash-medium",
-    name: "Gemini 3.5 Flash (Medium)",
-    reasoning: false,
-  },
-  {
-    id: "gemini-3.5-flash-low",
-    name: "Gemini 3.5 Flash (Low)",
-    reasoning: false,
-  },
-  {
-    id: "gemini-3.5-flash",
-    name: "Gemini 3.5 Flash",
-    reasoning: false,
-  },
-  {
-    id: "gemini-3.1-pro-high",
-    name: "Gemini 3.1 Pro (High)",
-    reasoning: true,
-  },
-  {
-    id: "gemini-3.1-pro-low",
-    name: "Gemini 3.1 Pro (Low)",
-    reasoning: true,
-  },
-  {
-    id: "claude-sonnet-4.6",
-    name: "Claude Sonnet 4.6 (Thinking)",
-    reasoning: true,
-  },
-  {
-    id: "claude-opus-4.6",
-    name: "Claude Opus 4.6 (Thinking)",
-    reasoning: true,
-  },
-  {
-    id: "gpt-oss-120b",
-    name: "GPT-OSS 120B (Medium)",
-    reasoning: true,
-  },
-] as const;
+// Compile-time list. `staticCatalog` returns this; the live list is fetched
+// on demand via `getLiveAntigravityModels()`.
+export const MODEL_DEFINITIONS: readonly AntigravityModel[] = STATIC_MODEL_FALLBACK;
 
-function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntimeModel | undefined {
-  const definition = MODEL_DEFINITIONS.find((model) => model.id === modelId);
-  if (!definition) return undefined;
+function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntimeModel {
+  const meta = deriveModelMetadata(modelId);
   return {
-    id: definition.id,
-    name: definition.name,
+    id: modelId,
+    name: meta.name,
     provider: providerId,
     api: "google-generative-ai",
     baseUrl: "https://antigravity.invalid",
-    reasoning: definition.reasoning,
+    reasoning: meta.reasoning,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1_000_000,
+    contextWindow: meta.contextWindow,
     maxTokens: 65_536,
   };
 }
 
 function buildAntigravityConfigPatch(providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID) {
-  const models: Record<string, any> = {};
-  for (const model of MODEL_DEFINITIONS) {
-    models[`${providerId}/${model.id}`] = {
-      agentRuntime: { id: providerId },
-    };
-  }
-  return { agents: { defaults: { models } } };
+  // Wildcard mapping routes every Antigravity model ID through the CLI
+  // backend, so we don't need to enumerate them here — new models exposed
+  // by `agy` at runtime pick up the same routing automatically.
+  return {
+    agents: {
+      defaults: {
+        models: {
+          [`${providerId}/*`]: { agentRuntime: { id: providerId } },
+        },
+      },
+    },
+  };
 }
 
-export function buildModelCatalogRows(providerId: string, source: "static" | "live" = "static") {
-  return MODEL_DEFINITIONS.map((model) => ({
-    kind: "text" as const,
+function shouldSkipLiveFetch(env: NodeJS.ProcessEnv): boolean {
+  // Match bundled plugins (deepinfra, openrouter): keep tests offline so
+  // catalog tests don't shell out to a real `agy` binary.
+  return env.NODE_ENV === "test" || Boolean(env.VITEST);
+}
+
+function toCatalogEntry(
+  providerId: string,
+  model: AntigravityModel,
+  source: UnifiedModelCatalogEntry["source"],
+  timestamps?: { fetchedAt: number; expiresAt: number },
+): UnifiedModelCatalogEntry {
+  return {
+    kind: "text",
     provider: providerId,
     model: model.id,
     label: model.name,
     source,
     capabilities: {
       reasoning: model.reasoning,
-      input: ["text"],
-      contextWindow: 1_000_000,
+      input: ["text"] as const,
+      contextWindow: model.contextWindow,
     },
-  }));
+    ...(timestamps ?? {}),
+  };
+}
+
+export function buildModelCatalogRows(
+  providerId: string,
+  source: UnifiedModelCatalogEntry["source"] = "static",
+  models: readonly AntigravityModel[] = MODEL_DEFINITIONS,
+): UnifiedModelCatalogEntry[] {
+  return models.map((model) => toCatalogEntry(providerId, model, source));
 }
 
 export type BuildGoogleAntigravityProviderOptions = {
@@ -212,19 +172,31 @@ export function buildGoogleAntigravityProvider(
         mode: "token",
       };
     },
-    resolveDynamicModel: ({ modelId }) => buildRuntimeModel(providerId, modelId),
-    augmentModelCatalog: () =>
-      MODEL_DEFINITIONS.map((model) => ({
-        provider: providerId,
-        id: model.id,
-        name: model.name,
-        reasoning: model.reasoning,
-        input: ["text"],
-        contextWindow: 1_000_000,
-      })),
-    isModernModelRef: ({ modelId }) =>
-      MODEL_DEFINITIONS.some((model) => model.id === modelId),
+    resolveDynamicModel: ({ modelId }: { modelId: string }) =>
+      buildRuntimeModel(providerId, modelId),
+    // Any well-formed ID is routable — the plugin forwards it verbatim to
+    // `agy --model`. OpenClaw's own catalog gates which IDs are selectable.
+    isModernModelRef: ({ modelId }: { modelId: string }) =>
+      typeof modelId === "string" && modelId.length > 0,
   };
+}
+
+export async function listGoogleAntigravityCatalog(
+  ctx: UnifiedModelCatalogProviderContext,
+): Promise<readonly UnifiedModelCatalogEntry[] | null> {
+  if (shouldSkipLiveFetch(ctx.env ?? process.env)) return null;
+
+  const live = await getLiveAntigravityModels({
+    timeoutMs: ctx.timeoutMs ?? DEFAULT_LIVE_TIMEOUT_MS,
+    signal: ctx.signal,
+  });
+
+  if (!live) return null;
+
+  const timestamps = { fetchedAt: live.fetchedAt, expiresAt: live.expiresAt };
+  return live.models.map((model) =>
+    toCatalogEntry(GOOGLE_ANTIGRAVITY_PROVIDER_ID, model, live.source, timestamps),
+  );
 }
 
 const plugin: OpenClawPluginDefinition = definePluginEntry({
@@ -237,10 +209,12 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     api.registerModelCatalogProvider({
       provider: "google-antigravity-cli",
       kinds: ["text"],
-      staticCatalog: () => buildModelCatalogRows("google-antigravity-cli", "static"),
-      liveCatalog: () => buildModelCatalogRows("google-antigravity-cli", "live"),
+      staticCatalog: () =>
+        buildModelCatalogRows("google-antigravity-cli", "static", STATIC_MODEL_FALLBACK),
+      liveCatalog: listGoogleAntigravityCatalog,
     });
   },
 });
 
+export { clearAntigravityModelsCache };
 export default plugin;
