@@ -1,13 +1,17 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
-import type {
-  CliBackendConfig,
-  CliBackendNormalizeConfigContext,
-  CliBackendPlugin,
-  CliBackendResolveExecutionArgsContext,
-} from "openclaw/plugin-sdk/cli-backend";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
+
+type CliBackendPlugin = Parameters<OpenClawPluginApi["registerCliBackend"]>[0];
+type CliBackendConfig = CliBackendPlugin["config"];
+type CliBackendNormalizeConfigContext = Parameters<
+  NonNullable<CliBackendPlugin["normalizeConfig"]>
+>[1];
+type CliBackendResolveExecutionArgsContext = Parameters<
+  NonNullable<CliBackendPlugin["resolveExecutionArgs"]>
+>[0];
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
@@ -24,16 +28,15 @@ export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   sonnet: "claude-sonnet-4.6",
   opus: "claude-opus-4.6",
   gpt: "gpt-oss-120b",
+  "gemini-3.8-flash-high": "gemini-3.8-flash-high",
+  "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+  "gemini-3.8-flash-low": "gemini-3.8-flash-low",
   "gemini-3.7-flash-high": "gemini-3.7-flash-high",
   "gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
   "gemini-3.7-flash-low": "gemini-3.7-flash-low",
   "gemini-3.6-flash-high": "gemini-3.6-flash-high",
   "gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
   "gemini-3.6-flash-low": "gemini-3.6-flash-low",
-  "gemini-3.5-flash": "gemini-3.5-flash-medium",
-  "gemini-3.5-flash-medium": "gemini-3.5-flash-medium",
-  "gemini-3.5-flash-high": "gemini-3.5-flash-high",
-  "gemini-3.5-flash-low": "gemini-3.5-flash-low",
   "gemini-3.1-pro-low": "gemini-3.1-pro-low",
   "gemini-3.1-pro-high": "gemini-3.1-pro-high",
   "claude-sonnet-4.6": "claude-sonnet-4-6",
