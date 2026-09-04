@@ -8,6 +8,7 @@ import type {
   CliBackendResolveExecutionArgsContext,
 } from "openclaw/plugin-sdk/cli-backend";
 import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
+import { applyOpenClawMcpBridge, resolveAgyMcpConfigPath } from "./mcp-bridge.js";
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
 
@@ -545,6 +546,19 @@ export function resolveGoogleAntigravityExecutionArgs(
   return args;
 }
 
+// Publishing into agy's HOME-level MCP config is a shared-file side effect, so
+// it can be turned off without disabling the rest of the backend.
+export function exposeOpenClawTools(
+  cfg: Record<string, any> | undefined,
+  providerId?: string,
+): boolean {
+  const backendConfig =
+    cfg?.agents?.defaults?.cliBackends?.[providerId ?? GOOGLE_ANTIGRAVITY_PROVIDER_ID];
+  const pluginConfig = resolvePluginConfig(cfg, providerId);
+  const value = backendConfig?.exposeOpenClawTools ?? pluginConfig?.exposeOpenClawTools;
+  return value !== false;
+}
+
 export function buildGoogleAntigravityCliBackend(
   backendId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   env: NodeJS.ProcessEnv = process.env,
@@ -558,14 +572,44 @@ export function buildGoogleAntigravityCliBackend(
     liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash` },
     nativeToolMode: "always-on",
     ownsNativeCompaction: true,
+    // Ask openclaw to stand up its loopback MCP server and materialise a
+    // config for this run. `gemini-system-settings` is the right mode of the
+    // three available: it injects no CLI args (agy would reject claude's
+    // `--mcp-config`/`--strict-mcp-config`), delivers the path through
+    // GEMINI_CLI_SYSTEM_SETTINGS_PATH in the child env where prepareExecution
+    // can read it, and resolves `${OPENCLAW_MCP_TOKEN}` to a literal before
+    // writing, which agy needs because it performs no placeholder expansion.
+    bundleMcp: true,
+    bundleMcpMode: "gemini-system-settings",
     normalizeConfig: normalizeGoogleAntigravityBackendConfig,
     resolveExecutionArgs: resolveGoogleAntigravityExecutionArgs,
-    prepareExecution: (ctx) => {
+    prepareExecution: async (ctx) => {
       const cwd = (ctx as { cwd?: string; workspaceDir: string }).cwd ?? ctx.workspaceDir;
       let priorConversationId: string | undefined;
       let stagedAtMs = 0;
 
+      // Publish openclaw's tools into agy's MCP config for the duration of the
+      // run. agy only loads HOME-level ~/.gemini/config/mcp_config.json, so
+      // this is a shared file; `serialize: true` on this backend means agy runs
+      // never overlap, and the entries are namespaced and removed afterwards.
+      let mcpCleanup: (() => Promise<void>) | undefined;
+      const settingsPath = (ctx as { env?: Record<string, string> }).env
+        ?.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
+      if (settingsPath && exposeOpenClawTools(ctx.config as Record<string, any> | undefined, backendId)) {
+        try {
+          const bridged = await applyOpenClawMcpBridge({
+            settingsPath,
+            agyConfigPath: resolveAgyMcpConfigPath(env),
+          });
+          mcpCleanup = bridged?.cleanup;
+        } catch {
+          // Tool bridging is an enhancement; a failed write must not stop the
+          // turn, it just means agy runs without openclaw's tools this time.
+        }
+      }
+
       return {
+        ...(mcpCleanup ? { cleanup: mcpCleanup } : {}),
         ...(normalizeOptionalString(env.ANTIGRAVITY_USER_DATA_DIR)
           ? { env: { ANTIGRAVITY_USER_DATA_DIR: userDataDir } }
           : {}),

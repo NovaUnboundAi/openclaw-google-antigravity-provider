@@ -151,6 +151,11 @@
         "default": "skip",
         "description": "How agy may run tools. skip: --dangerously-skip-permissions (auto-approve everything, the only mode that works with no further setup). sandbox: --sandbox (terminal restrictions). settings: neither flag, deferring to permissions.allow in ~/.gemini/antigravity-cli/settings.json."
       },
+      "exposeOpenClawTools": {
+        "type": "boolean",
+        "default": true,
+        "description": "Publish OpenClaw's loopback MCP server into agy's HOME-level ~/.gemini/config/mcp_config.json for the duration of each run, so agy can call OpenClaw tools. Entries are namespaced under the openclaw__ prefix and removed when the run ends; your own servers are left untouched. Set false to leave agy's MCP config alone."
+      },
       "stream": {
         "type": "boolean",
         "default": false,

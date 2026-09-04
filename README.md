@@ -10,6 +10,7 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 - **Full Model Support:** Gemini 3.8 Flash, Gemini 3.7 Flash, Gemini 3.6 Flash, Gemini 3.1 Pro (effort routed through OpenClaw's thinking-level slider → `agy --effort {low|medium|high}`), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B.
 - **Synthetic Local Auth:** Seamlessly uses local signed-in `agy` credentials with zero expiring tokens or stored secrets in OpenClaw.
 - **Sanitized Execution Environment:** Automatically isolates user data via `ANTIGRAVITY_USER_DATA_DIR` and scrubs conflicting ambient Google API keys.
+- **OpenClaw Tools via MCP:** Bridges OpenClaw's loopback MCP server into agy for the duration of each run, so agy can call OpenClaw's own tools and any MCP servers you configure in OpenClaw.
 - **Workspace Instructions:** Reads the same bootstrap files OpenClaw does (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`) per agent, and delivers them to agy once per conversation, so agents behave the same here as on any other provider.
 - **Preflight Probing:** Validates local `agy` CLI health, executable availability, and required command-line flags on setup.
 - **Prompt Caching:** Resuming by conversation id keeps Google's server-side cache warm across turns; `cache_read_tokens` is reported back to OpenClaw as `cacheRead` usage.
@@ -110,6 +111,66 @@ headless mode cannot prompt for"* — so a policy has to be chosen up front.
 The default stays `skip` for compatibility and because it is the only mode that
 runs unattended out of the box — but it does mean every agy tool call is
 auto-approved. Pick `sandbox` or `settings` if that is not acceptable.
+
+### OpenClaw Tools in agy (MCP)
+
+OpenClaw runs a loopback HTTP MCP server exposing its own tools, and hands the
+CLI child a bearer token for it. `claude-cli` receives that as
+`--mcp-config <file>` and `gemini-cli` through
+`GEMINI_CLI_SYSTEM_SETTINGS_PATH`. agy has neither, so the plugin bridges it.
+
+The backend declares `bundleMcp` with `bundleMcpMode: "gemini-system-settings"`
+— the right one of the three available modes, because it injects **no** CLI args
+(agy rejects claude's `--mcp-config` / `--strict-mcp-config`), delivers the
+config path through the child environment where `prepareExecution` can read it,
+and resolves `${OPENCLAW_MCP_TOKEN}` to a literal before writing, which agy
+requires since it performs no placeholder expansion of its own.
+
+The plugin then translates that config into agy's schema (`url` → `serverUrl`,
+`excludeTools` → `disabledTools`, dropping `type`/`trust`) and merges it into
+agy's config for the run.
+
+Verified against agy 1.0.14 with a live MCP server behind bearer auth: agy
+connected, called the tool, and returned a value only obtainable from the
+server.
+
+**It has to be the HOME-level file.** agy loads MCP servers only from
+`~/.gemini/config/mcp_config.json`. Project-local `.agents/mcp_config.json` is
+discovered and then silently ignored
+([antigravity-cli#60](https://github.com/google-antigravity/antigravity-cli/issues/60),
+still true on 1.0.14), and no flag or environment variable redirects the path
+per run. Consequences, and how they are handled:
+
+- **Your servers are never touched.** Injected entries are namespaced under the
+  `openclaw__` prefix; merging replaces only that prefix and removes them again
+  when the run ends. Cleanup re-reads the file first, so edits you make during a
+  run survive.
+- **Stale entries cannot accumulate.** Each run replaces every `openclaw__`
+  entry, so a crashed run cannot leave a dead loopback port behind.
+- **No concurrent writes.** The backend sets `serialize: true`, so agy runs
+  never overlap.
+- **The token touches disk briefly.** It is a per-run, loopback-scoped bearer
+  token; the file is written `0600` via an atomic rename and the entry is
+  deleted afterwards.
+
+Set `exposeOpenClawTools: false` in the plugin config to skip this entirely and
+leave agy's MCP config alone:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "google-antigravity-cli": {
+        "enabled": true,
+        "config": { "exposeOpenClawTools": false }
+      }
+    }
+  }
+}
+```
+
+Any MCP servers you configure in OpenClaw are forwarded by the same mechanism,
+so agy gets those too.
 
 ### Optional: Real-Time Thought & Text Streaming
 
