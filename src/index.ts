@@ -88,6 +88,12 @@ export const MODEL_DEFINITIONS = [
   },
 ] as const;
 
+function resolveModelContextWindow(modelId: string): number {
+  if (modelId.startsWith("claude-")) return 200_000;
+  if (modelId === "gpt-oss-120b") return 128_000;
+  return 1_000_000;
+}
+
 function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntimeModel | undefined {
   const definition = MODEL_DEFINITIONS.find((model) => model.id === modelId);
   if (!definition) return undefined;
@@ -100,19 +106,30 @@ function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntime
     reasoning: definition.reasoning,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1_000_000,
+    contextWindow: resolveModelContextWindow(definition.id),
     maxTokens: 65_536,
   };
 }
 
-function buildAntigravityConfigPatch(providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID) {
-  const models: Record<string, any> = {};
-  for (const model of MODEL_DEFINITIONS) {
-    models[`${providerId}/${model.id}`] = {
+export function buildAntigravityProviderCatalog(
+  providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+) {
+  return {
+    baseUrl: "https://antigravity.invalid",
+    apiKey: GOOGLE_ANTIGRAVITY_AUTH_MARKER,
+    api: "google-generative-ai" as const,
+    agentRuntime: { id: providerId },
+    models: MODEL_DEFINITIONS.map((model) => ({
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: ["text" as const],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: resolveModelContextWindow(model.id),
+      maxTokens: 65_536,
       agentRuntime: { id: providerId },
-    };
-  }
-  return { agents: { defaults: { models } } };
+    })),
+  };
 }
 
 export function buildModelCatalogRows(providerId: string, source: "static" | "live" = "static") {
@@ -125,7 +142,7 @@ export function buildModelCatalogRows(providerId: string, source: "static" | "li
     capabilities: {
       reasoning: model.reasoning,
       input: ["text"],
-      contextWindow: 1_000_000,
+      contextWindow: resolveModelContextWindow(model.id),
     },
   }));
 }
@@ -175,10 +192,37 @@ export function buildGoogleAntigravityProvider(
             throw new Error(result.reason);
           }
 
+          const modelRefs = MODEL_DEFINITIONS.map((model) => `${providerId}/${model.id}`);
+          const existingAllow = ctx.config.agents?.defaults?.modelPolicy?.allow;
+
           return {
-            profiles: [],
+            profiles: [
+              {
+                profileId: `${providerId}:local`,
+                credential: {
+                  type: "api_key",
+                  provider: providerId,
+                  key: GOOGLE_ANTIGRAVITY_AUTH_MARKER,
+                },
+              },
+            ],
+            configPatch: {
+              agents: {
+                defaults: {
+                  models: Object.fromEntries(
+                    modelRefs.map((modelRef) => [modelRef, {}]),
+                  ),
+                  ...(existingAllow
+                    ? {
+                        modelPolicy: {
+                          allow: [...new Set([...existingAllow, ...modelRefs])],
+                        },
+                      }
+                    : {}),
+                },
+              },
+            },
             defaultModel: GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
-            configPatch: buildAntigravityConfigPatch(providerId),
             notes: [
               "Uses the local signed-in agy runtime. OpenClaw does not import or persist Antigravity OAuth tokens.",
               "Prompts are passed through agy --print as command-line arguments.",
@@ -188,6 +232,10 @@ export function buildGoogleAntigravityProvider(
         },
       },
     ],
+    staticCatalog: {
+      order: "simple",
+      run: async () => ({ provider: buildAntigravityProviderCatalog(providerId) }),
+    },
     wizard: {
       setup: {
         choiceId: providerId,
@@ -204,7 +252,7 @@ export function buildGoogleAntigravityProvider(
       return {
         apiKey: GOOGLE_ANTIGRAVITY_AUTH_MARKER,
         source: "local agy runtime",
-        mode: "token",
+        mode: "api-key",
       };
     },
     resolveDynamicModel: ({ modelId }) => buildRuntimeModel(providerId, modelId),
@@ -215,7 +263,7 @@ export function buildGoogleAntigravityProvider(
         name: model.name,
         reasoning: model.reasoning,
         input: ["text"],
-        contextWindow: 1_000_000,
+        contextWindow: resolveModelContextWindow(model.id),
       })),
     isModernModelRef: ({ modelId }) =>
       MODEL_DEFINITIONS.some((model) => model.id === modelId),

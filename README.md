@@ -13,13 +13,25 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 
 ## Installation
 
+### Prerequisites
+
+1. Install the Google Antigravity `agy` CLI for the Gateway host.
+2. Sign in through `agy` as the same operating-system user that runs the
+   OpenClaw Gateway.
+3. Confirm `agy --help` lists `--print`, `--model`, and `--print-timeout`.
+
 ### Local Plugin Directory (Recommended)
 
-In your `~/.openclaw/openclaw.json`:
+Clone the repository, then add its directory to `~/.openclaw/openclaw.json`.
+OpenClaw loads the TypeScript entrypoint directly; a separate dependency install
+or build step is not required.
 
 ```json
 {
   "plugins": {
+    "allow": [
+      "google-antigravity-cli"
+    ],
     "load": {
       "paths": [
         "/home/rev/projects/openclaw-google-antigravity-provider"
@@ -34,75 +46,55 @@ In your `~/.openclaw/openclaw.json`:
 }
 ```
 
+For a local path install, `plugins.allow` is required for OpenClaw to trust the
+provider-discovery entry used by chat-channel model pickers. If the array is
+already present, preserve its existing entries and add
+`google-antigravity-cli`; do not replace the array.
+
 ## Configuration
 
-Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
+The plugin registers its model catalog, synthetic local authentication, and CLI
+runtime routing. Do not add a hand-written
+`models.providers.google-antigravity-cli` block or per-model runtime mappings.
 
-```json
-{
-  "models": {
-    "mode": "merge",
-    "providers": {
-      "google-antigravity-cli": {
-        "baseUrl": "https://antigravity.invalid",
-        "apiKey": "antigravity-local-session",
-        "api": "google-generative-ai",
-        "models": [
-          { "id": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.8-flash-medium", "name": "Gemini 3.8 Flash (Medium)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.8-flash-low", "name": "Gemini 3.8 Flash (Low)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.7-flash-medium", "name": "Gemini 3.7 Flash (Medium)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.7-flash-high", "name": "Gemini 3.7 Flash (High)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.7-flash-low", "name": "Gemini 3.7 Flash (Low)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.6-flash-high", "name": "Gemini 3.6 Flash (High)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.6-flash-medium", "name": "Gemini 3.6 Flash (Medium)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.6-flash-low", "name": "Gemini 3.6 Flash (Low)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)", "reasoning": true, "input": ["text"] },
-          { "id": "gemini-3.1-pro-low", "name": "Gemini 3.1 Pro (Low)", "reasoning": true, "input": ["text"] },
-          { "id": "claude-sonnet-4.6", "name": "Claude Sonnet 4.6 (Thinking)", "reasoning": true, "input": ["text"] },
-          { "id": "claude-opus-4.6", "name": "Claude Opus 4.6 (Thinking)", "reasoning": true, "input": ["text"] },
-          { "id": "gpt-oss-120b", "name": "GPT-OSS 120B (Medium)", "reasoning": true, "input": ["text"] }
-        ]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "timeoutSeconds": 1800,
-      "models": {
-        "google-antigravity-cli/*": {
-          "agentRuntime": {
-            "id": "google-antigravity-cli"
-          }
-        }
-      },
-      "cliBackends": {
-        "google-antigravity-cli": {
-          "stream": true
-        }
-      }
-    }
-  }
-}
+Run the provider login once as the Gateway operating-system user. This checks
+the local `agy` installation and stores only a non-secret local-runtime marker;
+it does not copy Google credentials into OpenClaw.
+
+```bash
+openclaw models auth login --provider google-antigravity-cli --method custom
 ```
 
-### Optional: Real-Time Thought & Text Streaming
+If `agents.defaults.modelPolicy.allow` is already configured, preserve that
+policy. The provider-login command preserves its existing entries and adds the
+plugin's exact model references. This is necessary because an explicit
+allowlist is an operator security boundary and the plugin will not bypass it.
+Rerun the provider-login command after an update that adds models so an existing
+exact allowlist receives the new references.
 
-To stream thinking and response deltas in real-time to the OpenClaw Web UI, enable `stream: true` under `agents.defaults.cliBackends.google-antigravity-cli`:
+After installing or updating the plugin, reload the Gateway through your normal
+OpenClaw service workflow. Then verify the picker directly with:
 
-```json
-{
-  "agents": {
-    "defaults": {
-      "cliBackends": {
-        "google-antigravity-cli": {
-          "stream": true
-        }
-      }
-    }
-  }
-}
+```text
+/models google-antigravity-cli
 ```
+
+### What users do not need to configure
+
+- No `npm install` or `npm run build` for normal local-plugin use.
+- No `models.providers.google-antigravity-cli` block.
+- No `agents.defaults.models` runtime mapping for each Antigravity model.
+- No stored Google API key or copied Antigravity OAuth token in OpenClaw.
+
+If the provider appears in `openclaw models list` but not `/models`, first check
+the active agent's `modelPolicy.allow`, confirm the Gateway service user can run
+`agy --help`, and verify the loaded source with
+`openclaw plugins inspect google-antigravity-cli`.
+
+### Real-Time Thought & Text Streaming
+
+The backend always uses `stream-json`/`jsonl` so it can stream output and retain
+Antigravity conversation IDs for persistent sessions.
 
 ## Development
 
