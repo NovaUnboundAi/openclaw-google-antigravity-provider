@@ -179,13 +179,27 @@ extensions register their own CLI backends. The manifest's top-level
 `agents.defaults.cliBackends` config key in the example above is also still
 valid.
 
-One thing did change: openclaw 2026.9.x stopped publishing type declarations
-for the `openclaw/plugin-sdk/cli-backend` subpath. The runtime export survives,
-but the types now live only in a content-hashed internal chunk with no stable
-import path, so `tsc` fails with TS7016 on that import. `src/openclaw-cli-backend-shim.d.ts`
-declares structural equivalents to keep the build green — the same approach
-`src/session-catalog.ts` already takes for the gateway-protocol types. Delete it
-if a future release re-publishes those declarations.
+One thing did change: the `openclaw/plugin-sdk/cli-backend` and
+`plugin-sdk/provider-model-shared` subpaths stopped shipping type declarations
+after 2026.7.1. Verified from the published tarballs:
+
+| openclaw | `plugin-sdk/cli-backend.d.ts` |
+| --- | --- |
+| 2026.7.1 | present |
+| 2026.8.1 | **absent** (`.js` only) |
+| 2026.9.1 | **absent** (`.js` only) |
+
+The runtime exports survive; the types now live only in a content-hashed
+internal chunk with no stable import path, so `tsc` fails with TS7016 on those
+imports. That means this plugin never actually compiled against its own declared
+minimum of 2026.8.1 — it only built because the lockfile still pinned 2026.7.1.
+
+`src/openclaw-cli-backend-shim.d.ts` declares structural equivalents to keep the
+build green, the same approach `src/session-catalog.ts` already takes for the
+gateway-protocol types. It is safe on 2026.8.x and 2026.9.x because neither
+ships competing declarations. `ProviderPlugin` needs no shim — it is still
+exported from `plugin-sdk/plugin-entry`. Delete the shim if a future release
+re-publishes the subpath declarations.
 
 ## Development
 
