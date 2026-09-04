@@ -193,6 +193,29 @@ export async function readConversationCache(
   return parsed as Record<string, string>;
 }
 
+// Windows and macOS both default to case-insensitive filesystems, so agy and
+// openclaw can name the same directory differently (`C:\\Users\\Chris` vs
+// `c:\\users\\chris`). Windows additionally accepts either separator. An exact
+// string miss here is not cosmetic: it makes captureSessionId throw, which
+// drops the session binding, restarts the agy conversation every turn, and
+// with it the accumulated prompt cache.
+const CASE_INSENSITIVE_FS =
+  process.platform === "win32" || process.platform === "darwin";
+
+function normalizeCwdKey(value: string): string {
+  // path.normalize is platform-native, so it unifies separators on Windows
+  // and leaves POSIX paths alone. Trailing separators are dropped so
+  // `/work` and `/work/` compare equal.
+  const normalized = path.normalize(value).replace(/[\\/]+$/, "");
+  return CASE_INSENSITIVE_FS ? normalized.toLowerCase() : normalized;
+}
+
+function validConversationId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return CONVERSATION_ID_PATTERN.test(trimmed) ? trimmed : undefined;
+}
+
 export async function resolveCachedConversationId(params: {
   cachePath: string;
   cwd: string;
@@ -203,11 +226,20 @@ export async function resolveCachedConversationId(params: {
   try {
     cwdCandidates.add(await fs.realpath(params.cwd));
   } catch {}
+
+  // Exact match first: cheapest, and authoritative when agy wrote the key
+  // exactly as openclaw spells it.
   for (const cwd of cwdCandidates) {
-    const value = cache[cwd];
-    if (typeof value === "string" && CONVERSATION_ID_PATTERN.test(value.trim())) {
-      return value.trim();
-    }
+    const exact = validConversationId(cache[cwd]);
+    if (exact) return exact;
+  }
+
+  // Then a normalized sweep for separator, trailing-slash, and case drift.
+  const wanted = new Set([...cwdCandidates].map(normalizeCwdKey));
+  for (const [key, value] of Object.entries(cache)) {
+    if (!wanted.has(normalizeCwdKey(key))) continue;
+    const match = validConversationId(value);
+    if (match) return match;
   }
   return undefined;
 }

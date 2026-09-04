@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { iterProtobufTextFields } from "./session-catalog-protobuf.js";
 
@@ -106,13 +107,23 @@ export function summaryPrimaryCwd(
 ): string | undefined {
   const first = summary.workspaceUris[0];
   if (!first) return undefined;
+  if (!first.startsWith("file://")) return first;
+  // fileURLToPath is platform-native: on Windows it yields `C:\\Users\\...`
+  // and `\\\\server\\share`, where hand-decoding `url.pathname` yields
+  // `/C:/Users/...` and silently drops the UNC host.
   try {
-    if (first.startsWith("file://")) {
+    return fileURLToPath(first);
+  } catch {
+    // Rejected as a local path (e.g. a UNC host seen on a POSIX host, which
+    // fileURLToPath refuses). Keep the host so the value stays recognizable.
+    try {
       const url = new URL(first);
-      return decodeURIComponent(url.pathname);
+      const decoded = decodeURIComponent(url.pathname);
+      return url.hostname ? `//${url.hostname}${decoded}` : decoded || first;
+    } catch {
+      return first;
     }
-  } catch {}
-  return first;
+  }
 }
 
 // history.jsonl carries the clean human-typed prompt for every turn. The

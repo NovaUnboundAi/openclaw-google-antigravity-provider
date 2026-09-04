@@ -201,6 +201,47 @@ ships competing declarations. `ProviderPlugin` needs no shim — it is still
 exported from `plugin-sdk/plugin-entry`. Delete the shim if a future release
 re-publishes the subpath declarations.
 
+## Platform Notes
+
+The plugin runs on the same machine as `agy`, so paths and process limits are
+resolved with platform-native APIs: `fileURLToPath` for workspace URIs (which
+yields `C:\\Users\\...` and `\\\\server\\share` on Windows rather than
+`/C:/Users/...`), `path.normalize` for cache keys, and `where` instead of
+`which` when probing for the binary. The conversation-cache lookup also matches
+case-insensitively on Windows and macOS, since agy and OpenClaw can spell the
+same directory differently there. That match is not cosmetic — missing it makes
+`captureSessionId` throw, which drops the session binding, restarts the agy
+conversation every turn, and discards the accumulated prompt cache.
+
+The data directory defaults to `~/.gemini/antigravity-cli`, resolved through
+`$HOME` and falling back to `os.homedir()` when `HOME` is unset, as it usually
+is on Windows.
+
+### Prompt size limit
+
+Prompts are passed to `agy --print` as a **command-line argument**, so the OS
+argv limit is a hard ceiling on a single message:
+
+| Platform | Limit | Notes |
+| --- | --- | --- |
+| Windows | ~32,767 chars for the whole command line | `CreateProcess`; the tightest of the three |
+| macOS | 262,144 bytes for args + environment combined | `ARG_MAX` |
+| Linux | 131,072 bytes per single argument | `MAX_ARG_STRLEN` (32 × page size); measured |
+
+Exceeding it fails before agy starts, with `spawn E2BIG` /
+`Argument list too long`. In normal use the prompt is only the new user
+message — the conversation itself lives in agy and is resumed by id, not
+resent — so this needs one unusually large message, such as a pasted log or
+file dump. It is most reachable on Windows.
+
+Note that OpenClaw's `maxPromptArgChars` is **not** a usable mitigation with
+the current argument layout. When it diverts a long prompt to stdin it leaves
+`promptArg` undefined, and OpenClaw only substitutes the `{prompt}` placeholder
+when that value is defined — so the literal string `{prompt}` would be passed
+to agy instead of the prompt. A real fix needs a separate stdin argument set
+with no `--print` flag; agy does read the prompt from stdin when `--print` is
+omitted entirely.
+
 ## Development
 
 ```bash
