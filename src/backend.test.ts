@@ -538,7 +538,12 @@ describe("google-antigravity-cli CLI backend", () => {
 
     expect(prepared).toEqual(
       expect.objectContaining({
-        env: { ANTIGRAVITY_USER_DATA_DIR: "/tmp/antigravity-profile" },
+        env: {
+          ANTIGRAVITY_USER_DATA_DIR: "/tmp/antigravity-profile",
+          // Propagated so the strip-wrapper can decide whether to bridge
+          // openclaw's MCP tools into agy's ~/.gemini/config/mcp_config.json.
+          OPENCLAW_ANTIGRAVITY_EXPOSE_TOOLS: "true",
+        },
         clearEnv: [
           "GEMINI_API_KEY",
           "GOOGLE_API_KEY",

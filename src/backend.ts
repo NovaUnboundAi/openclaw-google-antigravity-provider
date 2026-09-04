@@ -606,31 +606,31 @@ export function buildGoogleAntigravityCliBackend(
       let priorConversationId: string | undefined;
       let stagedAtMs = 0;
 
-      // Publish openclaw's tools into agy's MCP config for the duration of the
-      // run. agy only loads HOME-level ~/.gemini/config/mcp_config.json, so
-      // this is a shared file; `serialize: true` on this backend means agy runs
-      // never overlap, and the entries are namespaced and removed afterwards.
-      let mcpCleanup: (() => Promise<void>) | undefined;
-      const settingsPath = (ctx as { env?: Record<string, string> }).env
-        ?.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
-      if (settingsPath && exposeOpenClawTools(ctx.config as Record<string, any> | undefined, backendId)) {
-        try {
-          const bridged = await applyOpenClawMcpBridge({
-            settingsPath,
-            agyConfigPath: resolveAgyMcpConfigPath(env),
-          });
-          mcpCleanup = bridged?.cleanup;
-        } catch {
-          // Tool bridging is an enhancement; a failed write must not stop the
-          // turn, it just means agy runs without openclaw's tools this time.
-        }
-      }
+      // MCP bridge moved to src/agy-strip-wrapper.ts so it can read the
+      // POST-capture-attempt `GEMINI_CLI_SYSTEM_SETTINGS_PATH`. openclaw's
+      // `prepareCliBundleMcpCaptureAttempt` runs after our `prepareExecution`
+      // returns and updates the env var to point at a fresh settings file
+      // carrying the resolved `x-openclaw-cli-capture-key`; writing the
+      // bridge from here reads the pre-capture file (empty key → agy gets a
+      // 401 when it calls the loopback server).
+      const exposeTools = exposeOpenClawTools(
+        ctx.config as Record<string, any> | undefined,
+        backendId,
+      );
 
       return {
-        ...(mcpCleanup ? { cleanup: mcpCleanup } : {}),
         ...(normalizeOptionalString(env.ANTIGRAVITY_USER_DATA_DIR)
-          ? { env: { ANTIGRAVITY_USER_DATA_DIR: userDataDir } }
-          : {}),
+          ? {
+              env: {
+                ANTIGRAVITY_USER_DATA_DIR: userDataDir,
+                OPENCLAW_ANTIGRAVITY_EXPOSE_TOOLS: String(exposeTools),
+              },
+            }
+          : {
+              env: {
+                OPENCLAW_ANTIGRAVITY_EXPOSE_TOOLS: String(exposeTools),
+              },
+            }),
         clearEnv: [
           "GEMINI_API_KEY",
           "GOOGLE_API_KEY",
