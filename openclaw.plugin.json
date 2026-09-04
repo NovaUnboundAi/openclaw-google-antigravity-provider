@@ -145,6 +145,12 @@
         "default": "30m0s",
         "description": "Timeout for agy --print invocations (e.g. 15m0s, 30m0s)"
       },
+      "permissionMode": {
+        "type": "string",
+        "enum": ["skip", "sandbox", "settings"],
+        "default": "skip",
+        "description": "How agy may run tools. skip: --dangerously-skip-permissions (auto-approve everything, the only mode that works with no further setup). sandbox: --sandbox (terminal restrictions). settings: neither flag, deferring to permissions.allow in ~/.gemini/antigravity-cli/settings.json."
+      },
       "stream": {
         "type": "boolean",
         "default": false,

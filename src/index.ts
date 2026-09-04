@@ -24,7 +24,7 @@ import {
 import { probeAgy, type AgyProbeResult } from "./probe.js";
 import {
   buildCrossProviderCatchUp,
-  DEFAULT_CATCH_UP_MAX_CHARS,
+  defaultCatchUpMaxChars,
 } from "./session-continuity.js";
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
 
@@ -261,7 +261,7 @@ export function registerAntigravityCatchUpHook(
       messages: Array.isArray(event?.messages) ? event.messages : [],
       providerId,
       currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
-      maxChars: DEFAULT_CATCH_UP_MAX_CHARS,
+      maxChars: defaultCatchUpMaxChars(),
     });
     return catchUp ? { prependContext: catchUp } : undefined;
   }) as never);

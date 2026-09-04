@@ -80,6 +80,36 @@ Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
 }
 ```
 
+### Tool Permissions
+
+agy cannot prompt for a tool permission in headless `--print` mode — it
+auto-denies and reports that the tool *"required the read_file permission that
+headless mode cannot prompt for"* — so a policy has to be chosen up front.
+`permissionMode` under the plugin's config selects it:
+
+| Mode | Flag | Behaviour |
+| --- | --- | --- |
+| `skip` (default) | `--dangerously-skip-permissions` | Auto-approves every tool. The only mode that works with no further setup. |
+| `sandbox` | `--sandbox` | agy runs with terminal restrictions enabled. |
+| `settings` | *(neither)* | Defers to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. Least privileged, but needs a rule for every tool you expect to be used. |
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "google-antigravity-cli": {
+        "enabled": true,
+        "config": { "permissionMode": "sandbox" }
+      }
+    }
+  }
+}
+```
+
+The default stays `skip` for compatibility and because it is the only mode that
+runs unattended out of the box — but it does mean every agy tool call is
+auto-approved. Pick `sandbox` or `settings` if that is not acceptable.
+
 ### Optional: Real-Time Thought & Text Streaming
 
 To stream thinking and response deltas in real-time to the OpenClaw Web UI, enable `stream: true` under `agents.defaults.cliBackends.google-antigravity-cli`:
@@ -242,6 +272,18 @@ block, capped at 8,000 chars, dropping oldest-first and saying how many turns it
 omitted. Tool traffic is left out, since agy has its own tool history and
 replaying another runtime's tool calls is noise.
 
+### Compaction
+
+The backend declares `ownsNativeCompaction` but deliberately offers **no**
+manual compaction operation, matching the bundled `google-gemini-cli` backend.
+agy has no compaction command — its slash-command surface is `/agents`,
+`/changelog`, `/config`, `/credits`, `/effort`, `/help`, `/hooks`, `/model`,
+`/permissions`, `/skills`, `/usage`, and `/compact` is answered as ordinary
+chat. A control operation that merely asked the model to *"summarise this
+conversation"* would **append** a summary turn rather than shrink anything,
+while reporting success to OpenClaw. `/compact` therefore fails loudly instead
+of silently doing nothing.
+
 ### Known limits
 
 - **The first switch-in is truncated.** OpenClaw's reseed budget for this
@@ -250,9 +292,17 @@ replaying another runtime's tool calls is noise.
   budget is OpenClaw's and is not plugin-configurable.
 - **OpenClaw's system prompt never reaches agy.** `resolveSystemPromptUsage`
   returns `null` unless the backend declares `systemPromptArg`,
-  `systemPromptFileArg`, or `systemPromptFileConfigKey`, and agy has no
-  system-prompt flag to point one at. agy runs on its own agent prompt, so an
-  OpenClaw agent persona does not affect agy turns.
+  `systemPromptFileArg`, or `systemPromptFileConfigKey`; agy has no
+  system-prompt flag to point one at, and it does not pick up an `AGENTS.md`
+  from the workspace either (verified — it answers as though the file is not
+  there). So agy runs on its own agent prompt and an OpenClaw agent persona
+  does not affect agy turns.
+
+  This is partly by design rather than purely a gap: with `nativeToolMode:
+  "always-on"` agy owns its own tool surface, so OpenClaw's tool and channel
+  instructions would describe tools agy does not have. Forcing the system
+  prompt in through the catch-up hook is possible but would spend its budget
+  every turn on guidance that mostly does not apply.
 
 ## Platform Notes
 

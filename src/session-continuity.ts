@@ -18,7 +18,18 @@
 // produced elsewhere, which makes the catch-up delta computable with no stored
 // state and no watermark to drift out of sync.
 
+// The catch-up block rides in the prompt argument, so it competes with the OS
+// argv ceiling. Windows caps the whole command line at ~32,767 chars, versus
+// 131,072 per argument on Linux and 262,144 total on macOS, and openclaw's own
+// reseed can already contribute ~12,199 chars. Leave Windows more headroom.
 export const DEFAULT_CATCH_UP_MAX_CHARS = 8_000;
+export const WINDOWS_CATCH_UP_MAX_CHARS = 4_000;
+
+export function defaultCatchUpMaxChars(
+  platform: NodeJS.Platform = process.platform,
+): number {
+  return platform === "win32" ? WINDOWS_CATCH_UP_MAX_CHARS : DEFAULT_CATCH_UP_MAX_CHARS;
+}
 
 export type TranscriptRole = "user" | "assistant" | "toolResult" | "compactionSummary";
 
@@ -130,7 +141,7 @@ export function buildCrossProviderCatchUp(
   }
   if (rendered.length === 0) return undefined;
 
-  const maxChars = params.maxChars ?? DEFAULT_CATCH_UP_MAX_CHARS;
+  const maxChars = params.maxChars ?? defaultCatchUpMaxChars();
   // Drop oldest first: the turns nearest the current one matter most.
   let body = rendered.join("\n\n");
   let dropped = 0;

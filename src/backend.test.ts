@@ -97,6 +97,7 @@ describe("google-antigravity-cli CLI backend", () => {
       "{prompt}",
       "--print-timeout",
       "900s",
+      "--dangerously-skip-permissions",
       "--output-format",
       "stream-json",
       // Base Gemini id with no slider value: agy requires an effort, so the
@@ -133,6 +134,7 @@ describe("google-antigravity-cli CLI backend", () => {
       "{prompt}",
       "--print-timeout",
       "15m0s",
+      "--dangerously-skip-permissions",
       "--output-format",
       "stream-json",
       "--effort",
@@ -166,6 +168,7 @@ describe("google-antigravity-cli CLI backend", () => {
       "{prompt}",
       "--print-timeout",
       "30m0s",
+      "--dangerously-skip-permissions",
       "--effort",
       "low",
     ]);
@@ -542,67 +545,76 @@ describe("google-antigravity-cli CLI backend", () => {
     );
   });
 
-  describe("manualCompaction", () => {
-    it("builds default and custom compaction prompts", () => {
-      const backend = buildGoogleAntigravityCliBackend();
-      expect(backend.manualCompaction).toBeDefined();
-      expect(backend.manualCompaction?.input).toBe("arg");
+  describe("permission mode", () => {
+    const baseArgs = ["--print", "{prompt}", "--dangerously-skip-permissions"];
+    const run = (permissionMode?: string) =>
+      resolveGoogleAntigravityExecutionArgs({
+        config: permissionMode
+          ? ({
+              plugins: {
+                entries: {
+                  "google-antigravity-cli": { config: { permissionMode } },
+                },
+              },
+            } as any)
+          : (undefined as any),
+        workspaceDir: "/tmp",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        modelId: "claude-sonnet-4-6",
+        authProfileId: undefined,
+        thinkingLevel: undefined,
+        executionMode: "agent",
+        useResume: false,
+        baseArgs,
+      });
 
-      expect(backend.manualCompaction?.buildPrompt()).toContain("Do not execute any tools");
-      expect(backend.manualCompaction?.buildPrompt("preserve architectural decisions")).toContain(
-        "preserve architectural decisions",
-      );
+    it("defaults to skip, because headless agy cannot prompt for permissions", () => {
+      // agy: "a tool required the read_file permission that headless mode
+      // cannot prompt for, so it was auto-denied".
+      const args = run();
+      expect(args).toContain("--dangerously-skip-permissions");
+      expect(args).not.toContain("--sandbox");
     });
 
-    it("validates successful and error process outputs", () => {
-      const backend = buildGoogleAntigravityCliBackend();
-      const validate = backend.manualCompaction?.validateOutput;
-      expect(validate).toBeDefined();
+    it("swaps in --sandbox when asked", () => {
+      const args = run("sandbox");
+      expect(args).toContain("--sandbox");
+      expect(args).not.toContain("--dangerously-skip-permissions");
+    });
 
-      // Empty output
-      expect(validate!("")).toEqual({
-        ok: false,
-        reason: "Antigravity CLI returned empty output during compaction.",
-      });
+    it("sends neither flag in settings mode, deferring to permissions.allow", () => {
+      const args = run("settings");
+      expect(args).not.toContain("--sandbox");
+      expect(args).not.toContain("--dangerously-skip-permissions");
+    });
 
-      // Stream-json success
-      const successJson = JSON.stringify({
-        event: "result",
-        result: { status: "SUCCESS", response: "Summary of conversation" },
-      });
-      expect(validate!(successJson)).toEqual({ ok: true });
+    it("falls back to skip for an unrecognized mode", () => {
+      expect(run("nonsense")).toContain("--dangerously-skip-permissions");
+    });
 
-      // Stream-json error
-      const errorJson = JSON.stringify({
-        event: "result",
-        result: { status: "ERROR", error: "Context limit exceeded" },
-      });
-      expect(validate!(errorJson)).toEqual({
-        ok: false,
-        reason: "Context limit exceeded",
-      });
-
-      // Conversation not found in text
-      expect(validate!("warning: conversation \"a6b1a47baa29\" not found")).toEqual({
-        ok: false,
-        reason:
-          "Antigravity native conversation not found for this session. Send a message first to establish the conversation before compacting.",
-      });
-
-      // Context canceled in JSON
-      const canceledJson = JSON.stringify({
-        event: "result",
-        result: { status: "ERROR", error: "context canceled" },
-      });
-      expect(validate!(canceledJson)).toEqual({
-        ok: false,
-        reason:
-          "Antigravity native conversation not found or canceled. Send a message first to initialize the native conversation before compacting.",
-      });
-
-      // Plain text output
-      expect(validate!("Here is the summary of the conversation...")).toEqual({ ok: true });
+    it("never emits both permission flags at once", () => {
+      for (const mode of [undefined, "skip", "sandbox", "settings", "bogus"]) {
+        const args = run(mode);
+        const count =
+          args.filter((a) => a === "--dangerously-skip-permissions").length +
+          args.filter((a) => a === "--sandbox").length;
+        expect(count).toBeLessThanOrEqual(1);
+      }
     });
   });
-});
 
+  describe("compaction contract", () => {
+    it("claims native compaction without offering a manual control operation", () => {
+      // agy has no compaction command: its slash-command surface is
+      // /agents /changelog /config /credits /effort /help /hooks /model
+      // /permissions /skills /usage. A "summarise this conversation" prompt
+      // appends a turn rather than shrinking one, so declaring manualCompaction
+      // would report success for work that never happened. Same shape as the
+      // bundled google-gemini-cli backend.
+      const backend = buildGoogleAntigravityCliBackend("google-antigravity-cli", {});
+      expect(backend.ownsNativeCompaction).toBe(true);
+      expect((backend as any).manualCompaction).toBeUndefined();
+    });
+  });
+
+});

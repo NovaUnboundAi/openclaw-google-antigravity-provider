@@ -10,6 +10,47 @@ import type {
 import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
+
+// How agy is allowed to run tools. agy cannot prompt for a permission in
+// headless `--print` mode — it auto-denies and returns
+//   "a tool required the \"read_file\" permission that headless mode cannot
+//    prompt for, so it was auto-denied"
+// so *some* policy has to be chosen up front.
+//
+//   skip     `--dangerously-skip-permissions`; auto-approves every tool.
+//            Default, because it is the only mode that works out of the box.
+//   sandbox  `--sandbox`; agy runs with terminal restrictions enabled.
+//   settings neither flag; agy falls back to `permissions.allow` in
+//            ~/.gemini/antigravity-cli/settings.json, which is the least
+//            privileged option but needs rules for the tools you expect.
+export type AntigravityPermissionMode = "skip" | "sandbox" | "settings";
+
+export const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
+export const SANDBOX_FLAG = "--sandbox";
+export const DEFAULT_PERMISSION_MODE: AntigravityPermissionMode = "skip";
+
+export function resolvePermissionMode(
+  value: unknown,
+): AntigravityPermissionMode {
+  return value === "sandbox" || value === "settings" || value === "skip"
+    ? value
+    : DEFAULT_PERMISSION_MODE;
+}
+
+// Rewrites whichever permission flag the base args carry into the configured
+// mode, so a user override is honoured without the caller having to know which
+// flag the defaults happened to ship with.
+export function applyPermissionMode(
+  args: readonly string[],
+  mode: AntigravityPermissionMode,
+): string[] {
+  const stripped = args.filter(
+    (arg) => arg !== SKIP_PERMISSIONS_FLAG && arg !== SANDBOX_FLAG,
+  );
+  if (mode === "skip") stripped.push(SKIP_PERMISSIONS_FLAG);
+  else if (mode === "sandbox") stripped.push(SANDBOX_FLAG);
+  return stripped;
+}
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
   "google-antigravity-cli/gemini-3.7-flash";
 
@@ -454,7 +495,12 @@ export function resolveGoogleAntigravityExecutionArgs(
     cfg?.agents?.defaults?.timeoutSeconds;
 
   const timeoutStr = formatGoDuration(configuredTimeout, DEFAULT_PRINT_TIMEOUT);
-  const args = [...context.baseArgs];
+  const args = applyPermissionMode(
+    context.baseArgs,
+    resolvePermissionMode(
+      backendConfig?.permissionMode ?? pluginConfig?.permissionMode,
+    ),
+  );
   const timeoutIndex = args.indexOf("--print-timeout");
 
   if (timeoutIndex !== -1 && timeoutIndex + 1 < args.length) {
@@ -615,64 +661,15 @@ export function buildGoogleAntigravityCliBackend(
   };
 
   (backend as any).parseJsonlEvent = parseGoogleAntigravityJsonlEvent;
-  (backend as any).manualCompaction = {
-    buildPrompt: (customInstructions?: string): string => {
-      const instructions = customInstructions?.trim();
-      const customPart = instructions ? ` Focus on: ${instructions}` : "";
-      return `Do not execute any tools or commands. Provide a concise summary and compaction of this conversation so far, preserving key decisions, active context, and current progress.${customPart}`;
-    },
-    input: "arg",
-    validateOutput: (rawOutput: string): { ok: boolean; reason?: string } => {
-      const trimmed = rawOutput.trim();
-      if (!trimmed) {
-        return {
-          ok: false,
-          reason: "Antigravity CLI returned empty output during compaction.",
-        };
-      }
-      if (
-        trimmed.includes("not found") &&
-        (trimmed.includes("conversation") || trimmed.includes("warning: conversation"))
-      ) {
-        return {
-          ok: false,
-          reason:
-            "Antigravity native conversation not found for this session. Send a message first to establish the conversation before compacting.",
-        };
-      }
-      for (const line of trimmed.split("\n")) {
-        const lineTrimmed = line.trim();
-        if (!lineTrimmed.startsWith("{")) continue;
-        try {
-          const record = JSON.parse(lineTrimmed);
-          if (record.event === "result" && record.result) {
-            if (record.result.status === "ERROR" || record.result.status === "FAILED") {
-              const err =
-                record.result.error ||
-                record.result.message ||
-                "Antigravity compaction error";
-              if (
-                err.toLowerCase().includes("context canceled") ||
-                err.toLowerCase().includes("not found")
-              ) {
-                return {
-                  ok: false,
-                  reason:
-                    "Antigravity native conversation not found or canceled. Send a message first to initialize the native conversation before compacting.",
-                };
-              }
-              return {
-                ok: false,
-                reason: err,
-              };
-            }
-            return { ok: true };
-          }
-        } catch {}
-      }
-      return { ok: true };
-    },
-  };
+  // No `manualCompaction`: agy exposes no compaction command. Its slash-command
+  // surface is /agents /changelog /config /credits /effort /help /hooks /model
+  // /permissions /skills /usage, with nothing that compacts, and `/compact` is
+  // answered as ordinary chat. A control operation that merely asked the model
+  // to "summarise this conversation" would *append* a summary turn rather than
+  // shrink anything, while reporting success to openclaw. The bundled
+  // google-gemini-cli backend takes the same shape: `ownsNativeCompaction`
+  // without a manual control operation, so `/compact` fails loudly instead of
+  // silently doing nothing.
 
   return backend;
 }
