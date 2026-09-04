@@ -112,9 +112,6 @@
           "ANTIGRAVITY_USER_DATA_DIR"
         ]
       }
-    ],
-    "cliBackends": [
-      "google-antigravity-cli"
     ]
   },
   "providerAuthChoices": [
