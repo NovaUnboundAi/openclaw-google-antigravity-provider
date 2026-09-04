@@ -271,57 +271,63 @@ export function registerAntigravityCatchUpHook(
 
   const tracker = new WorkspaceContextDeliveryTracker();
 
-  api.registerHook("before_prompt_build", (async (event: any, ctx: any) => {
-    // Only our own turns: another provider's turn needs no agy catch-up.
-    if (
-      typeof ctx?.modelProviderId !== "string" ||
-      ctx.modelProviderId.trim().toLowerCase() !== providerId
-    ) {
-      return;
-    }
-
-    const blocks: string[] = [];
-
-    // Workspace instructions first: they frame everything that follows.
-    // `ctx.workspaceDir` is resolved per run, so a multi-agent gateway gets
-    // each agent's own workspace rather than a shared one.
-    const workspaceDir =
-      typeof ctx?.workspaceDir === "string" ? ctx.workspaceDir.trim() : "";
-    if (workspaceDir) {
-      try {
-        const conversationId = await currentConversationId(workspaceDir);
-        // Read first so an edit to the instructions re-delivers into a
-        // conversation that is otherwise still healthy.
-        const files = await readWorkspaceBootstrapFiles(workspaceDir);
-        const fingerprint = workspaceBootstrapFingerprint(files);
-        if (
-          files.length > 0 &&
-          tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId, fingerprint)
-        ) {
-          const block = buildWorkspaceContextBlock({
-            workspaceDir,
-            agentId: typeof ctx?.agentId === "string" ? ctx.agentId : undefined,
-            files,
-            maxChars: defaultWorkspaceContextMaxChars(),
-          });
-          if (block) blocks.push(block);
-        }
-      } catch {
-        // Workspace context is an enhancement; a turn is still valid without
-        // it, so a read failure must not take the turn down.
+  api.registerHook(
+    "before_prompt_build",
+    (async (event: any, ctx: any) => {
+      // Only our own turns: another provider's turn needs no agy catch-up.
+      if (
+        typeof ctx?.modelProviderId !== "string" ||
+        ctx.modelProviderId.trim().toLowerCase() !== providerId
+      ) {
+        return;
       }
-    }
 
-    const catchUp = buildCrossProviderCatchUp({
-      messages: Array.isArray(event?.messages) ? event.messages : [],
-      providerId,
-      currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
-      maxChars: defaultCatchUpMaxChars(),
-    });
-    if (catchUp) blocks.push(catchUp);
+      const blocks: string[] = [];
 
-    return blocks.length > 0 ? { prependContext: blocks.join("\n\n") } : undefined;
-  }) as never);
+      // Workspace instructions first: they frame everything that follows.
+      // `ctx.workspaceDir` is resolved per run, so a multi-agent gateway gets
+      // each agent's own workspace rather than a shared one.
+      const workspaceDir =
+        typeof ctx?.workspaceDir === "string" ? ctx.workspaceDir.trim() : "";
+      if (workspaceDir) {
+        try {
+          const conversationId = await currentConversationId(workspaceDir);
+          // Read first so an edit to the instructions re-delivers into a
+          // conversation that is otherwise still healthy.
+          const files = await readWorkspaceBootstrapFiles(workspaceDir);
+          const fingerprint = workspaceBootstrapFingerprint(files);
+          if (
+            files.length > 0 &&
+            tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId, fingerprint)
+          ) {
+            const block = buildWorkspaceContextBlock({
+              workspaceDir,
+              agentId: typeof ctx?.agentId === "string" ? ctx.agentId : undefined,
+              files,
+              maxChars: defaultWorkspaceContextMaxChars(),
+            });
+            if (block) blocks.push(block);
+          }
+        } catch {
+          // Workspace context is an enhancement; a turn is still valid without
+          // it, so a read failure must not take the turn down.
+        }
+      }
+
+      const catchUp = buildCrossProviderCatchUp({
+        messages: Array.isArray(event?.messages) ? event.messages : [],
+        providerId,
+        currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
+        maxChars: defaultCatchUpMaxChars(),
+      });
+      if (catchUp) blocks.push(catchUp);
+
+      return blocks.length > 0 ? { prependContext: blocks.join("\n\n") } : undefined;
+    }) as never,
+    // OpenClaw 2026.8.x+ requires `name` on every hook registration; without
+    // it plugin registration fails with `hook registration missing name`.
+    { name: `${providerId}:catch-up-and-workspace-context` } as never,
+  );
 }
 
 const plugin: OpenClawPluginDefinition = definePluginEntry({
