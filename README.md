@@ -12,35 +12,123 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 - **Sanitized Execution Environment:** Automatically isolates user data via `ANTIGRAVITY_USER_DATA_DIR` and scrubs conflicting ambient Google API keys.
 - **OpenClaw Tools via MCP:** Bridges OpenClaw's loopback MCP server into agy for the duration of each run, so agy can call OpenClaw's own tools and any MCP servers you configure in OpenClaw.
 - **Workspace Instructions:** Reads the same bootstrap files OpenClaw does (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`) per agent, and delivers them to agy once per conversation, so agents behave the same here as on any other provider.
+- **Duplicate History Removed:** OpenClaw prepends its channel context (`⟦openclaw:ctx⟧` block plus the active goal) to every turn. Agy already has that history in its own conversation SQLite, so a thin wrapper strips those blocks before agy sees the prompt — turning a compounded prompt back into a bounded one.
+- **Session Catalog:** Past agy conversations appear in OpenClaw's session sidebar. Continue resumes them via `agy --conversation <id>`; Copy imports a transcript into a fresh OpenClaw session, so you can keep an agy-started thread going in any other model.
 - **Preflight Probing:** Validates local `agy` CLI health, executable availability, and required command-line flags on setup.
 - **Prompt Caching:** Resuming by conversation id keeps Google's server-side cache warm across turns; `cache_read_tokens` is reported back to OpenClaw as `cacheRead` usage.
 
-## Installation
+## Setup
 
-### Local Plugin Directory (Recommended)
+### 1. Install and sign in to `agy`
 
-In your `~/.openclaw/openclaw.json`:
+The plugin drives whatever `agy` binary is on `$PATH`. Grab the CLI from
+Google's downloads page —
+[antigravity.google/download#antigravity-cli](https://antigravity.google/download#antigravity-cli) —
+then sign in interactively by running `agy` once and completing the Google
+flow.
+
+Confirm the account is signed in and eligible before touching OpenClaw:
+
+```bash
+agy --print "say hello" --print-timeout 2m0s
+```
+
+If that returns text within a couple of minutes, auth is good.
+
+> ⚠️ **Watch for a degraded `agy --help`.** When the account is not signed in
+> or the model tier is ineligible, `agy --help` shows a *reduced* flag set that
+> omits real flags (`--effort`, `--input-format`, `--json-schema`, `--mode`,
+> `--agent`), and passing one fails with Go's
+> `flags provided but not defined: -effort`. That looks exactly like the flag
+> not existing in that build — it does. The `agy --print` probe above is the
+> reliable check.
+
+### 2. Register the plugin with OpenClaw
+
+Point OpenClaw at this plugin directory in `~/.openclaw/openclaw.json`. The
+`plugins.load.paths` array can hold either a local checkout of this repository
+*or* the `~/.openclaw/agents/<agent>/workspace/skills/google-antigravity-cli`
+directory if you `rsync` a built copy into place there.
 
 ```json
 {
   "plugins": {
+    "allow": ["google-antigravity-cli"],
     "load": {
       "paths": [
-        "/home/rev/projects/openclaw-google-antigravity-provider"
+        "/absolute/path/to/openclaw-google-antigravity-provider"
       ]
     },
     "entries": {
       "google-antigravity-cli": {
-        "enabled": true
+        "enabled": true,
+        "config": {
+          "printTimeout": "30m0s",
+          "stream": true,
+          "permissionMode": "skip",
+          "exposeOpenClawTools": true
+        }
       }
     }
   }
 }
 ```
 
-## Configuration
+Then restart the gateway:
 
-Add the provider definition and runtime mapping in `~/.openclaw/openclaw.json`:
+```bash
+openclaw gateway restart
+```
+
+### 3. Register the synthetic auth marker with OpenClaw
+
+OpenClaw itself does not persist any Google credentials — agy owns those. But
+the picker still needs to know that a synthetic-local provider is available.
+The plugin's setup wizard does this for you:
+
+```bash
+openclaw models auth login --provider google-antigravity-cli --agent main
+```
+
+Answer *"Yes"* when it asks whether to configure the local Antigravity `agy`
+runtime. The wizard:
+
+- Runs a fast `which agy` probe (`agy --help` is impractical — it hits Google
+  and can take 30–45 s cold).
+- Snapshots the current live catalog from `agy models` (falling back to a small
+  static list if agy is offline) into `models.providers.google-antigravity-cli`.
+- Adds a wildcard route: `agents.defaults.models["google-antigravity-cli/*"]` →
+  the CLI backend.
+- Widens `agents.defaults.modelPolicy.allow` to include
+  `google-antigravity-cli/*` so the models actually reach the picker.
+
+At that point `openclaw models` should list every model row `agy models`
+publishes, and the `/models` picker in your channels should show
+`google-antigravity-cli` with them under it. Pick one and start chatting.
+
+### 4. Verify end-to-end
+
+Once a channel turn has actually run through agy:
+
+- `openclaw plugins list --json | grep antigravity-cli` should show
+  `"status": "loaded"` with **no** `plugins.errors[]` entry in
+  `openclaw health --json`.
+- The Telegram `/status` card should not show `⚠️ Plugins: … plugin error`.
+- `openclaw models list --provider google-antigravity-cli --json` should list
+  the collapsed base rows (`gemini-3.8-flash`, `-3.7-flash`, `-3.6-flash`,
+  `-3.1-pro`, plus Claude Sonnet 4.6, Claude Opus 4.6, and GPT-OSS 120B).
+- To confirm the MCP bridge, ask the agent "list the openclaw MCP tools you
+  have" — it should name entries under the `openclaw__` prefix. If it does
+  not, `~/.gemini/config/mcp_config.json` will be empty after the turn
+  (cleanup is intentional); check `openclaw health --json` for a plugin error
+  and re-run `openclaw gateway restart` if you just deployed a code change.
+
+## Configuration Reference
+
+The setup steps above install this plugin with `permissionMode: "skip"`,
+streaming on, and MCP bridge on. If you skipped the wizard, or want to
+declare the full provider / model / routing shape by hand, this is the
+canonical block for `~/.openclaw/openclaw.json`:
 
 ```json
 {
@@ -122,13 +210,21 @@ CLI child a bearer token for it. `claude-cli` receives that as
 The backend declares `bundleMcp` with `bundleMcpMode: "gemini-system-settings"`
 — the right one of the three available modes, because it injects **no** CLI args
 (agy rejects claude's `--mcp-config` / `--strict-mcp-config`), delivers the
-config path through the child environment where `prepareExecution` can read it,
-and resolves `${OPENCLAW_MCP_TOKEN}` to a literal before writing, which agy
-requires since it performs no placeholder expansion of its own.
+config path through the child environment (`GEMINI_CLI_SYSTEM_SETTINGS_PATH`),
+and resolves `${OPENCLAW_MCP_TOKEN}` and `${OPENCLAW_MCP_CLI_CAPTURE_KEY}` to
+literals before writing, which agy requires since it performs no placeholder
+expansion of its own.
 
-The plugin then translates that config into agy's schema (`url` → `serverUrl`,
+The bridge runs in the strip-wrapper rather than `prepareExecution` because
+OpenClaw's per-turn capture attempt (`prepareCliBundleMcpCaptureAttempt`)
+rewrites `GEMINI_CLI_SYSTEM_SETTINGS_PATH` **after** `prepareExecution` returns
+— reading it any earlier gets the pre-capture file with an empty
+`x-openclaw-cli-capture-key`, and every MCP call from agy comes back 401. The
+wrapper reads the env var at spawn time and thus sees the resolved key.
+
+It then translates the config into agy's schema (`url` → `serverUrl`,
 `excludeTools` → `disabledTools`, dropping `type`/`trust`) and merges it into
-agy's config for the run.
+agy's `mcp_config.json` for the run.
 
 Verified against agy 1.0.14 with a live MCP server behind bearer auth: agy
 connected, called the tool, and returned a value only obtainable from the
@@ -171,6 +267,41 @@ leave agy's MCP config alone:
 
 Any MCP servers you configure in OpenClaw are forwarded by the same mechanism,
 so agy gets those too.
+
+### Channel Context Stripping
+
+OpenClaw's cli-runner composes every turn's `--print` value by prepending the
+channel-provided context — one `Conversation info: ⟦openclaw:ctx⟧` block, one
+`Conversation context (chronological…) ⟦openclaw:ctx⟧` block covering recent
+turns, and the `Active goal:` appendix. It does this after every registered
+`before_prompt_build` hook has already returned
+(`prepare.ts:1856 → renderCurrentPrompt → buildCurrentInboundPrompt`), so a
+plugin hook cannot rewrite the prompt to remove those blocks.
+
+For a backend with native session persistence — agy stores the whole
+conversation in `~/.gemini/antigravity-cli/conversations/<id>.db` and resumes
+via `--conversation <id>` — that channel context is duplicate history: agy
+already has it, and re-sending it every turn compounds the SQLite state and
+inflates the context. In one Telegram session the same content was recorded
+enough times that `openclaw status` reported 942 % of a 1M context window.
+
+The strip-wrapper handles this at the spawn boundary. When OpenClaw spawns
+`node <plugin>/dist/agy-strip-wrapper.js <argv>` the wrapper:
+
+1. Finds the `--print` value in argv.
+2. Walks it paragraph-by-paragraph (respecting fenced code blocks so an
+   `⟦openclaw:ctx⟧` mention *inside* a code block is not stripped) and removes
+   the two label-anchored ctx blocks plus the `Active goal:` appendix.
+3. Execs the real agy binary with the trimmed argv, inheriting stdio and
+   forwarding SIGINT/SIGTERM/SIGHUP so OpenClaw's stream-json parser and turn
+   cancellation still work.
+
+Idempotent, no-op when the marker isn't present, and leaves user content
+alone — a message that happens to mention "Conversation info" without the
+`⟦openclaw:ctx⟧` marker passes through unchanged.
+
+Override the underlying agy binary the wrapper execs by setting
+`OPENCLAW_ANTIGRAVITY_REAL_COMMAND`.
 
 ### Optional: Real-Time Thought & Text Streaming
 
@@ -410,6 +541,39 @@ system-prompt flag for any of them to point at, and it does not read an
   tool and channel instructions would describe tools agy does not have.
   Workspace instructions are the part that defines agent behaviour, and those
   now arrive.
+
+## Session Catalog
+
+Past agy conversations appear in OpenClaw's session sidebar under the
+"Antigravity CLI" host. Openclaw calls the plugin's registered
+`SessionCatalogProvider` (via `api.registerSessionCatalog(...)`) to populate
+three actions:
+
+| Verb | What it does |
+| --- | --- |
+| **List** | Reads `~/.gemini/antigravity-cli/conversation_summaries.db` and returns one row per conversation with title, preview, last-touched time, and the primary workspace `cwd`. Sorted newest-first. |
+| **Read** | Rebuilds a transcript for the highlighted conversation. User prompts are lifted verbatim from `~/.gemini/antigravity-cli/history.jsonl` (filtered by `conversationId`); assistant and tool text is walked out of the per-conversation `steps.step_payload / render_info / metadata` protobuf BLOBs with a schemaless field scanner (no `.proto` schema is published, so extraction is best-effort — see [Known limits](#known-limits) below). |
+| **Continue** | Binds the OpenClaw session to that conversation id and resumes it via the existing CLI backend — same `agy --conversation <id>` path used by every other turn. |
+| **Copy to new session** | Streams the same transcript into a fresh Gateway-owned session so you can keep an agy-started thread going in *any* model available in OpenClaw's catalog. Bundled `beam` is the only other plugin that ships this hook today. |
+
+Everything is **read-only** on agy's data directory. There is no rename,
+archive, or delete surface — agy owns that state and the plugin refuses to
+touch it.
+
+Uses Node 22+'s built-in `node:sqlite`, so no additional runtime dependencies
+are pulled in.
+
+Known limits:
+
+- Transcript extraction from the step BLOBs is schemaless, so it recovers user
+  prompts and long assistant prose well but drops timing metadata and
+  occasionally surfaces UUIDs or path fragments as their own items. If Google
+  ever publishes the `.proto` schema, or if the community reverse-engineers
+  the specific field numbers used in `steps.step_payload`, this becomes a
+  faithful transcript.
+- The `list` output is refreshed on every sidebar poll and is not cached; on a
+  home directory with thousands of conversations this may add a few tens of
+  milliseconds per refresh.
 
 ## Platform Notes
 
