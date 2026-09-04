@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
 
+export type ModelInputModality = "text" | "image";
+
 export type AntigravityModel = {
   readonly id: string;
   readonly name: string;
   readonly reasoning: boolean;
   readonly contextWindow: number;
+  readonly input: readonly ModelInputModality[];
 };
 
 // Baseline list registered when `agy models` cannot be reached (agy missing,
@@ -19,24 +22,28 @@ export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
     name: "Gemini 3.8 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
+    input: ["text", "image"],
   },
   {
     id: "gemini-3.7-flash",
     name: "Gemini 3.7 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
+    input: ["text", "image"],
   },
   {
     id: "gemini-3.6-flash",
     name: "Gemini 3.6 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
+    input: ["text", "image"],
   },
   {
     id: "gemini-3.1-pro",
     name: "Gemini 3.1 Pro",
     reasoning: true,
     contextWindow: 1_000_000,
+    input: ["text", "image"],
   },
   // Non-Gemini families come as a single ID from agy so nothing to collapse.
   {
@@ -44,18 +51,21 @@ export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
     name: "Claude Sonnet 4.6 (Thinking)",
     reasoning: true,
     contextWindow: 200_000,
+    input: ["text", "image"],
   },
   {
     id: "claude-opus-4-6-thinking",
     name: "Claude Opus 4.6 (Thinking)",
     reasoning: true,
     contextWindow: 200_000,
+    input: ["text", "image"],
   },
   {
     id: "gpt-oss-120b-medium",
     name: "GPT-OSS 120B (Medium)",
     reasoning: true,
     contextWindow: 128_000,
+    input: ["text"],
   },
 ];
 
@@ -101,6 +111,17 @@ export function deriveReasoning(id: string, name = ""): boolean {
   return false;
 }
 
+// agy has no image attachment channel: `--input-format stream-json` rejects
+// non-text content blocks ("stream input content block type \"image\" is not
+// supported"). Images reach the model as staged file paths appended to the
+// prompt, which agy opens with its own `view_file` tool. That only produces a
+// useful answer on a vision-capable family — GPT-OSS 120B asks for the colors
+// back instead of reading the file, so it stays text-only.
+export function deriveInput(id: string): readonly ModelInputModality[] {
+  if (id.startsWith("gemini-") || id.startsWith("claude-")) return ["text", "image"];
+  return ["text"];
+}
+
 export function deriveModelMetadata(
   id: string,
   name?: string,
@@ -109,6 +130,7 @@ export function deriveModelMetadata(
     name: name ?? id,
     reasoning: deriveReasoning(id, name ?? ""),
     contextWindow: deriveContextWindow(id),
+    input: deriveInput(id),
   };
 }
 
@@ -142,6 +164,7 @@ export function parseAgyModelsOutput(text: string): AntigravityModel[] {
       name: displayName,
       reasoning: deriveReasoning(collapsedId, displayName),
       contextWindow: deriveContextWindow(collapsedId),
+      input: deriveInput(collapsedId),
     });
   }
   return models;

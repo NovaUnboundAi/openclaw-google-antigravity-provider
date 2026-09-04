@@ -502,6 +502,12 @@ export function buildGoogleAntigravityCliBackend(
       ],
       output: "jsonl",
       input: "arg",
+      // agy exposes no image flag and its stream-json input rejects non-text
+      // content blocks, so openclaw stages images and appends their paths to
+      // the prompt (the `imageArg`-unset path in its CLI runner). Staging into
+      // the workspace keeps them inside the directory agy is allowed to open
+      // with `view_file`; the "temp" scope would land outside it.
+      imagePathScope: "workspace",
       modelArg: "--model",
       modelAliases: GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
       systemPromptWhen: "first",

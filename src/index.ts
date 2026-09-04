@@ -5,9 +5,9 @@ import {
   type ProviderAuthContext,
   type ProviderRuntimeModel,
   type UnifiedModelCatalogEntry,
+  type ProviderPlugin,
   type UnifiedModelCatalogProviderContext,
 } from "openclaw/plugin-sdk/plugin-entry";
-import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-model-shared";
 import {
   buildGoogleAntigravityCliBackend,
   GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
@@ -39,7 +39,7 @@ function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntime
     api: "google-generative-ai",
     baseUrl: "http://antigravity.local",
     reasoning: meta.reasoning,
-    input: ["text"],
+    input: [...meta.input],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: meta.contextWindow,
     maxTokens: 65_536,
@@ -70,7 +70,7 @@ async function buildAntigravityConfigPatch(
             id: model.id,
             name: model.name,
             reasoning: model.reasoning,
-            input: ["text"] as const,
+            input: [...model.input],
             contextWindow: model.contextWindow,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           })),
@@ -110,7 +110,7 @@ function toCatalogEntry(
     source,
     capabilities: {
       reasoning: model.reasoning,
-      input: ["text"] as const,
+      input: [...model.input],
       contextWindow: model.contextWindow,
     },
     ...(timestamps ?? {}),

@@ -55,6 +55,16 @@ describe("google-antigravity-cli CLI backend", () => {
     });
   });
 
+  it("declares workspace-scoped image staging so agy can view_file the staged paths", () => {
+    // agy has no image flag and its stream-json input rejects image content
+    // blocks, so openclaw appends staged image paths to the prompt (the
+    // imageArg-unset path). "workspace" keeps them inside the directory agy
+    // is allowed to open.
+    const backend = buildGoogleAntigravityCliBackend("google-antigravity-cli", {});
+    expect(backend.config.imagePathScope).toBe("workspace");
+    expect(backend.config.imageArg).toBeUndefined();
+  });
+
   it("dynamically resolves --print-timeout and optional streaming flags", () => {
     const baseArgs = ["--print", "{prompt}", "--print-timeout", "30m0s"];
 

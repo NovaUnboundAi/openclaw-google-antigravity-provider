@@ -216,7 +216,7 @@ describe("SessionCatalogProvider copyToGatewaySession()", () => {
       { conversationId: "abcd1234", title: "Rebuild release pipeline" },
     ]);
     const provider = buildAntigravitySessionCatalog({ dataDir });
-    const result = await provider.copyToGatewaySession!({
+    const result = await (provider as any).copyToGatewaySession({
       threadId: "abcd1234",
       hostId: "google-antigravity-cli-local",
     });
@@ -225,7 +225,7 @@ describe("SessionCatalogProvider copyToGatewaySession()", () => {
 
   it("returns an empty hint when no summary is on disk", async () => {
     const provider = buildAntigravitySessionCatalog({ dataDir });
-    const result = await provider.copyToGatewaySession!({
+    const result = await (provider as any).copyToGatewaySession({
       threadId: "unknown-conversation",
       hostId: "google-antigravity-cli-local",
     });
@@ -235,7 +235,7 @@ describe("SessionCatalogProvider copyToGatewaySession()", () => {
   it("rejects an empty conversation id", async () => {
     const provider = buildAntigravitySessionCatalog({ dataDir });
     await expect(
-      provider.copyToGatewaySession!({ threadId: "", hostId: "google-antigravity-cli-local" }),
+      (provider as any).copyToGatewaySession({ threadId: "", hostId: "google-antigravity-cli-local" }),
     ).rejects.toThrow(/conversation id/);
   });
 });

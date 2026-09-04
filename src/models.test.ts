@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearAntigravityModelsCache,
   deriveContextWindow,
+  deriveInput,
   deriveModelMetadata,
   deriveReasoning,
   getLiveAntigravityModels,
@@ -32,17 +33,35 @@ describe("deriveReasoning", () => {
   });
 });
 
+describe("deriveInput", () => {
+  it("marks gemini and claude families as vision-capable", () => {
+    expect(deriveInput("gemini-3.8-flash")).toEqual(["text", "image"]);
+    expect(deriveInput("gemini-3.1-pro")).toEqual(["text", "image"]);
+    expect(deriveInput("claude-sonnet-4-6")).toEqual(["text", "image"]);
+    expect(deriveInput("claude-opus-4-6-thinking")).toEqual(["text", "image"]);
+  });
+
+  it("keeps text-only families text-only", () => {
+    // Verified against the live CLI: gpt-oss-120b-medium does not open the
+    // staged file, it asks for the image contents back.
+    expect(deriveInput("gpt-oss-120b-medium")).toEqual(["text"]);
+    expect(deriveInput("some-unknown-model")).toEqual(["text"]);
+  });
+});
+
 describe("deriveModelMetadata", () => {
   it("fills name/reasoning/contextWindow with sensible defaults", () => {
     expect(deriveModelMetadata("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)")).toEqual({
       name: "Gemini 3.8 Flash (Medium)",
       reasoning: true,
       contextWindow: 1_000_000,
+      input: ["text", "image"],
     });
     expect(deriveModelMetadata("gpt-oss-120b-medium")).toEqual({
       name: "gpt-oss-120b-medium",
       reasoning: true,
       contextWindow: 128_000,
+      input: ["text"],
     });
   });
 });
@@ -76,6 +95,7 @@ describe("parseAgyModelsOutput", () => {
       name: "Claude Sonnet 4.6 (Thinking)",
       reasoning: true,
       contextWindow: 200_000,
+      input: ["text", "image"],
     });
   });
 
