@@ -219,28 +219,47 @@ is on Windows.
 
 ### Prompt size limit
 
-Prompts are passed to `agy --print` as a **command-line argument**, so the OS
-argv limit is a hard ceiling on a single message:
+Prompts reach `agy --print` as a **command-line argument**, so the OS argv
+limit is a hard ceiling:
 
 | Platform | Limit | Notes |
 | --- | --- | --- |
-| Windows | ~32,767 chars for the whole command line | `CreateProcess`; the tightest of the three |
-| macOS | 262,144 bytes for args + environment combined | `ARG_MAX` |
-| Linux | 131,072 bytes per single argument | `MAX_ARG_STRLEN` (32 × page size); measured |
+| Windows | ~32,767 chars for the whole command line | `CreateProcess`; the tightest |
+| macOS | 262,144 bytes for args + environment | `ARG_MAX` |
+| Linux | 131,072 bytes per single argument | `MAX_ARG_STRLEN`; measured |
 
-Exceeding it fails before agy starts, with `spawn E2BIG` /
-`Argument list too long`. In normal use the prompt is only the new user
-message — the conversation itself lives in agy and is resumed by id, not
-resent — so this needs one unusually large message, such as a pasted log or
-file dump. It is most reachable on Windows.
+The prompt is **not** always just the newest message. OpenClaw sends only the
+new message when it has a CLI session id to resume
+(`basePrompt = cliSessionIdToUse ? prompt : openClawHistoryPrompt ?? prompt`).
+With no session id it reseeds, embedding the prior transcript in a
+`<conversation_history>` block ahead of `<next_user_message>`.
 
-Note that OpenClaw's `maxPromptArgChars` is **not** a usable mitigation with
-the current argument layout. When it diverts a long prompt to stdin it leaves
-`promptArg` undefined, and OpenClaw only substitutes the `{prompt}` placeholder
-when that value is defined — so the literal string `{prompt}` would be passed
-to agy instead of the prompt. A real fix needs a separate stdin argument set
-with no `--print` flag; agy does read the prompt from stdin when `--print` is
-omitted entirely.
+That reseed is bounded. The context-derived budget that can reach 262,144 chars
+applies only when the backend id is literally `claude-cli`, so this backend
+falls back to the default `MAX_CLI_SESSION_RESEED_HISTORY_CHARS`, giving
+`12288 - 89 = 12,199` chars of history. Worst case is therefore ~12.2 KB of
+reseed plus the current message — comfortably inside every platform limit,
+leaving roughly 20 KB of headroom for a single message on Windows, and far more
+elsewhere.
+
+So the reachable failure is one unusually large **single message** (a pasted log
+or file dump) on Windows. It fails loudly, before agy starts, with
+`spawn E2BIG` / `Argument list too long`.
+
+Keeping the session binding healthy matters here too: without it every turn
+takes the reseed path instead of the cheaper resume path, which both enlarges
+the prompt and discards the accumulated prompt cache.
+
+**Do not set `maxPromptArgChars`.** It is the obvious mitigation and it is
+wrong twice over. First, when OpenClaw diverts a long prompt to stdin it leaves
+`promptArg` undefined, and it only substitutes the `{prompt}` placeholder when
+that value is defined — so agy would receive the literal string `{prompt}`.
+Second, agy's stdin path is *worse* than argv: it accepts a prompt on stdin when
+`--print` is omitted, but measured against agy 1.0.14 it processes 16,384 chars
+and **silently discards** anything from ~20,000 up, returning
+`status: SUCCESS` with an empty response and zero token usage. A loud E2BIG is
+strictly preferable to a silent empty turn, so argv remains the correct
+transport.
 
 ## Development
 
