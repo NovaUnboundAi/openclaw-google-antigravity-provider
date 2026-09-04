@@ -10,6 +10,7 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 - **Full Model Support:** Gemini 3.8 Flash, Gemini 3.7 Flash, Gemini 3.6 Flash, Gemini 3.1 Pro (effort routed through OpenClaw's thinking-level slider → `agy --effort {low|medium|high}`), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B.
 - **Synthetic Local Auth:** Seamlessly uses local signed-in `agy` credentials with zero expiring tokens or stored secrets in OpenClaw.
 - **Sanitized Execution Environment:** Automatically isolates user data via `ANTIGRAVITY_USER_DATA_DIR` and scrubs conflicting ambient Google API keys.
+- **Workspace Instructions:** Reads the same bootstrap files OpenClaw does (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`) per agent, and delivers them to agy once per conversation, so agents behave the same here as on any other provider.
 - **Preflight Probing:** Validates local `agy` CLI health, executable availability, and required command-line flags on setup.
 - **Prompt Caching:** Resuming by conversation id keeps Google's server-side cache warm across turns; `cache_read_tokens` is reported back to OpenClaw as `cacheRead` usage.
 
@@ -284,25 +285,58 @@ conversation"* would **append** a summary turn rather than shrink anything,
 while reporting success to OpenClaw. `/compact` therefore fails loudly instead
 of silently doing nothing.
 
+### Workspace Instructions
+
+OpenClaw agents get their behaviour from workspace bootstrap files, and by
+default none of them reached agy, so an agy turn answered as stock Antigravity
+instead of as your agent. The plugin now reads the same files OpenClaw does —
+`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`,
+in that order — and hands them to agy in the prompt.
+
+Measured against agy 1.0.14, with an `AGENTS.md` saying *"always answer in
+exactly one sentence"* and a `SOUL.md` saying *"you are Ada, dry and precise"*:
+
+| | Reply to "Who are you, and what is 2+2?" |
+| --- | --- |
+| Without the block | "I am Gemini 3.7 Flash, an AI assistant built by Google (operating as Antigravity here…)" — several sentences |
+| With the block | "I am Ada, and the sum of 2 and 2 is 4." |
+
+**Multi-agent aware.** The files are read from `ctx.workspaceDir`, which
+OpenClaw resolves per run, so each agent gets its own workspace rather than a
+shared one. Delivery is tracked per agent *and* workspace, so two agents in one
+gateway never consume each other's state.
+
+**Sent once per agy conversation, not per turn.** Delivery is keyed on the agy
+conversation id bound to the workspace, so the block goes out when a
+conversation is first created and then stays quiet. If the binding is lost or
+replaced — a new conversation id appears — the fresh conversation has never seen
+the instructions, so they are sent again. Restarting the gateway clears the
+in-memory tracker, which costs one extra delivery and nothing else.
+
+Budget is 16,000 chars (6,000 on Windows, where the whole command line is capped
+near 32,767). Earlier files win, since OpenClaw's ordering puts operating
+instructions ahead of persona and `MEMORY.md` last, so truncation drops the most
+incidental content first and the block names anything it omitted.
+
+Why this is needed rather than using OpenClaw's own system prompt:
+`resolveWorkspaceBootstrapRouting` is skipped unless the backend can transport a
+system prompt, and `canTransportSystemPrompt` requires `systemPromptArg`,
+`systemPromptFileArg`, or `systemPromptFileConfigKey`. agy has no
+system-prompt flag for any of them to point at, and it does not read an
+`AGENTS.md` from the working directory on its own (verified).
+
 ### Known limits
 
 - **The first switch-in is truncated.** OpenClaw's reseed budget for this
   backend is `12288 - 89 = 12,199` chars (the larger context-derived budget is
   `claude-cli`-only), so a long prior chat reaches agy as a truncated tail. That
   budget is OpenClaw's and is not plugin-configurable.
-- **OpenClaw's system prompt never reaches agy.** `resolveSystemPromptUsage`
-  returns `null` unless the backend declares `systemPromptArg`,
-  `systemPromptFileArg`, or `systemPromptFileConfigKey`; agy has no
-  system-prompt flag to point one at, and it does not pick up an `AGENTS.md`
-  from the workspace either (verified — it answers as though the file is not
-  there). So agy runs on its own agent prompt and an OpenClaw agent persona
-  does not affect agy turns.
-
-  This is partly by design rather than purely a gap: with `nativeToolMode:
-  "always-on"` agy owns its own tool surface, so OpenClaw's tool and channel
-  instructions would describe tools agy does not have. Forcing the system
-  prompt in through the catch-up hook is possible but would spend its budget
-  every turn on guidance that mostly does not apply.
+- **OpenClaw's assembled system prompt still does not reach agy**, only the
+  workspace files above. There is no flag to transport it, and with
+  `nativeToolMode: "always-on"` agy owns its own tool surface, so OpenClaw's
+  tool and channel instructions would describe tools agy does not have.
+  Workspace instructions are the part that defines agent behaviour, and those
+  now arrive.
 
 ## Platform Notes
 

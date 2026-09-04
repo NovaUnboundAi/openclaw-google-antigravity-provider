@@ -8,10 +8,13 @@ import {
   type ProviderPlugin,
   type UnifiedModelCatalogProviderContext,
 } from "openclaw/plugin-sdk/plugin-entry";
+import path from "node:path";
 import {
   buildGoogleAntigravityCliBackend,
   GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+  resolveAntigravityDataDir,
+  resolveCachedConversationId,
 } from "./backend.js";
 import {
   clearAntigravityModelsCache,
@@ -26,6 +29,12 @@ import {
   buildCrossProviderCatchUp,
   defaultCatchUpMaxChars,
 } from "./session-continuity.js";
+import {
+  buildWorkspaceContextBlock,
+  defaultWorkspaceContextMaxChars,
+  readWorkspaceBootstrapFiles,
+  WorkspaceContextDeliveryTracker,
+} from "./workspace-bootstrap.js";
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
@@ -239,6 +248,16 @@ export async function listGoogleAntigravityCatalog(
 // `before_prompt_build` runs on the CLI path with the session transcript, and
 // its `prependContext` is folded into the outgoing prompt, which makes it the
 // place to hand agy the turns it missed.
+// The agy conversation currently bound to this workspace, read from agy's own
+// cwd -> conversation cache. undefined means the next turn starts a fresh one.
+async function currentConversationId(cwd: string): Promise<string | undefined> {
+  const dataDir = resolveAntigravityDataDir(process.env);
+  return resolveCachedConversationId({
+    cachePath: path.join(dataDir, "cache", "last_conversations.json"),
+    cwd,
+  });
+}
+
 export function registerAntigravityCatchUpHook(
   api: OpenClawPluginApi,
   providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
@@ -249,7 +268,9 @@ export function registerAntigravityCatchUpHook(
   // of failing plugin load.
   if (typeof register !== "function") return;
 
-  api.registerHook("before_prompt_build", ((event: any, ctx: any) => {
+  const tracker = new WorkspaceContextDeliveryTracker();
+
+  api.registerHook("before_prompt_build", (async (event: any, ctx: any) => {
     // Only our own turns: another provider's turn needs no agy catch-up.
     if (
       typeof ctx?.modelProviderId !== "string" ||
@@ -257,13 +278,42 @@ export function registerAntigravityCatchUpHook(
     ) {
       return;
     }
+
+    const blocks: string[] = [];
+
+    // Workspace instructions first: they frame everything that follows.
+    // `ctx.workspaceDir` is resolved per run, so a multi-agent gateway gets
+    // each agent's own workspace rather than a shared one.
+    const workspaceDir =
+      typeof ctx?.workspaceDir === "string" ? ctx.workspaceDir.trim() : "";
+    if (workspaceDir) {
+      try {
+        const conversationId = await currentConversationId(workspaceDir);
+        if (tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId)) {
+          const files = await readWorkspaceBootstrapFiles(workspaceDir);
+          const block = buildWorkspaceContextBlock({
+            workspaceDir,
+            agentId: typeof ctx?.agentId === "string" ? ctx.agentId : undefined,
+            files,
+            maxChars: defaultWorkspaceContextMaxChars(),
+          });
+          if (block) blocks.push(block);
+        }
+      } catch {
+        // Workspace context is an enhancement; a turn is still valid without
+        // it, so a read failure must not take the turn down.
+      }
+    }
+
     const catchUp = buildCrossProviderCatchUp({
       messages: Array.isArray(event?.messages) ? event.messages : [],
       providerId,
       currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
       maxChars: defaultCatchUpMaxChars(),
     });
-    return catchUp ? { prependContext: catchUp } : undefined;
+    if (catchUp) blocks.push(catchUp);
+
+    return blocks.length > 0 ? { prependContext: blocks.join("\n\n") } : undefined;
   }) as never);
 }
 
