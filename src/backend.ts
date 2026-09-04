@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type {
@@ -559,6 +560,23 @@ export function exposeOpenClawTools(
   return value !== false;
 }
 
+// Resolves the strip-wrapper's on-disk path. The wrapper lives next to this
+// module in dist/. We prepend `node <wrapper>` to the args (instead of
+// relying on a `#!/usr/bin/env node` shebang) so exec-bit-less filesystems
+// (FAT/exFAT on USB transfers, some Windows shares) don't break spawn.
+function resolveAgyWrapperInvocation(): { command: string; wrapperPath: string | null } {
+  try {
+    const here = fileURLToPath(new URL(".", import.meta.url));
+    const wrapper = path.join(here, "agy-strip-wrapper.js");
+    return { command: process.execPath, wrapperPath: wrapper };
+  } catch {
+    // If we can't resolve the wrapper (unlikely — the module has to load
+    // from somewhere), fall back to spawning raw agy. That drops the
+    // context-strip optimisation but preserves core functionality.
+    return { command: "agy", wrapperPath: null };
+  }
+}
+
 export function buildGoogleAntigravityCliBackend(
   backendId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   env: NodeJS.ProcessEnv = process.env,
@@ -666,9 +684,18 @@ export function buildGoogleAntigravityCliBackend(
         },
       } as any;
     },
-    config: {
-      command: "agy",
+    config: (() => {
+      // Point openclaw at `node <wrapper>` instead of raw agy so the
+      // openclaw:ctx channel-context blocks openclaw prepends to every turn
+      // are removed before agy sees the prompt. agy has its own conversation
+      // SQLite (`--conversation <id>`) so re-sending the channel context
+      // every turn is duplicate history — see src/prompt-strip.ts.
+      const wrap = resolveAgyWrapperInvocation();
+      const wrapperPrefix = wrap.wrapperPath ? [wrap.wrapperPath] : [];
+      return {
+      command: wrap.command,
       args: [
+        ...wrapperPrefix,
         "--print",
         "{prompt}",
         "--print-timeout",
@@ -678,6 +705,7 @@ export function buildGoogleAntigravityCliBackend(
         "--dangerously-skip-permissions",
       ],
       resumeArgs: [
+        ...wrapperPrefix,
         "--conversation",
         "{sessionId}",
         "--print",
@@ -701,7 +729,8 @@ export function buildGoogleAntigravityCliBackend(
       systemPromptWhen: "first",
       sessionMode: "existing",
       serialize: true,
-    },
+      };
+    })(),
   };
 
   (backend as any).parseJsonlEvent = parseGoogleAntigravityJsonlEvent;

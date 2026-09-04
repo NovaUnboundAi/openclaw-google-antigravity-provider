@@ -19,29 +19,34 @@ describe("google-antigravity-cli CLI backend", () => {
     expect(backend.nativeToolMode).toBe("always-on");
     expect(backend.ownsNativeCompaction).toBe(true);
     expect(typeof (backend as any).parseJsonlEvent).toBe("function");
+    // command is now node's own execPath (spawning the strip-wrapper) so
+    // openclaw's ctx blocks get removed before agy sees them. wrapper path
+    // is prepended to args + resumeArgs.
+    expect(backend.config.command).toBe(process.execPath);
+    expect(backend.config.args?.[0]).toMatch(/agy-strip-wrapper\.js$/);
+    expect(backend.config.args?.slice(1)).toEqual([
+      "--print",
+      "{prompt}",
+      "--print-timeout",
+      "30m0s",
+      "--output-format",
+      "stream-json",
+      "--dangerously-skip-permissions",
+    ]);
+    expect(backend.config.resumeArgs?.[0]).toMatch(/agy-strip-wrapper\.js$/);
+    expect(backend.config.resumeArgs?.slice(1)).toEqual([
+      "--conversation",
+      "{sessionId}",
+      "--print",
+      "{prompt}",
+      "--print-timeout",
+      "30m0s",
+      "--output-format",
+      "stream-json",
+      "--dangerously-skip-permissions",
+    ]);
     expect(backend.config).toEqual(
       expect.objectContaining({
-        command: "agy",
-        args: [
-          "--print",
-          "{prompt}",
-          "--print-timeout",
-          "30m0s",
-          "--output-format",
-          "stream-json",
-          "--dangerously-skip-permissions",
-        ],
-        resumeArgs: [
-          "--conversation",
-          "{sessionId}",
-          "--print",
-          "{prompt}",
-          "--print-timeout",
-          "30m0s",
-          "--output-format",
-          "stream-json",
-          "--dangerously-skip-permissions",
-        ],
         input: "arg",
         output: "jsonl",
         modelArg: "--model",
