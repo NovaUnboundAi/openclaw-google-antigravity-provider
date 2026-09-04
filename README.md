@@ -201,6 +201,59 @@ ships competing declarations. `ProviderPlugin` needs no shim — it is still
 exported from `plugin-sdk/plugin-entry`. Delete the shim if a future release
 re-publishes the subpath declarations.
 
+## Cross-Provider Continuity
+
+A chat can move between providers — start on OpenRouter in Telegram, switch to
+an agy model, switch away again. The three cases behave like this:
+
+| Situation | What OpenClaw does | What the plugin adds |
+| --- | --- | --- |
+| First switch **to** an agy model | No binding exists, so it reseeds the transcript into the prompt | Nothing — injecting would duplicate the reseed |
+| Consecutive agy turns | Resumes `agy --conversation <id>`, sends only the new message | Nothing — agy already has the history |
+| Switch **back** to agy after turns elsewhere | Reuses the stored binding and sends only the new message | Injects the turns agy missed |
+
+That third row is the gap this plugin closes. OpenClaw keeps CLI session
+bindings per provider (`entry.cliSessionBindings[providerId]`) and clears them
+only on failure, never on a model or provider switch.
+`resolveCliSessionReuse` decides reuse from auth profile, auth epoch,
+message-tool policy, cwd, MCP, and system-prompt/tool hashes — none of which is
+a transcript position — and `CliSessionBinding` carries no cursor. The runner
+then does:
+
+```js
+basePrompt = cliSessionIdToUse ? prompt : openClawHistoryPrompt ?? prompt
+```
+
+So without help, a resumed agy conversation silently misses everything that
+happened while another provider was answering.
+
+The fix is a `before_prompt_build` hook, which runs on the CLI path with the
+session transcript and whose `prependContext` is folded into the outgoing
+prompt. Every `AssistantMessage` records the `provider` that produced it, so
+the missed turns are simply everything after this provider's most recent
+assistant message. That makes the delta **stateless** — no watermark to persist
+or drift out of sync — and it self-corrects: if a turn is ever missed, the next
+one still computes the gap from the same anchor.
+
+Finding no prior agy assistant turn is exactly the first-switch-in case, so the
+hook stays silent there and lets OpenClaw's own reseed do the work. Missed turns
+are rendered as `User:` / `Assistant:` lines inside a `<turns_you_missed>`
+block, capped at 8,000 chars, dropping oldest-first and saying how many turns it
+omitted. Tool traffic is left out, since agy has its own tool history and
+replaying another runtime's tool calls is noise.
+
+### Known limits
+
+- **The first switch-in is truncated.** OpenClaw's reseed budget for this
+  backend is `12288 - 89 = 12,199` chars (the larger context-derived budget is
+  `claude-cli`-only), so a long prior chat reaches agy as a truncated tail. That
+  budget is OpenClaw's and is not plugin-configurable.
+- **OpenClaw's system prompt never reaches agy.** `resolveSystemPromptUsage`
+  returns `null` unless the backend declares `systemPromptArg`,
+  `systemPromptFileArg`, or `systemPromptFileConfigKey`, and agy has no
+  system-prompt flag to point one at. agy runs on its own agent prompt, so an
+  OpenClaw agent persona does not affect agy turns.
+
 ## Platform Notes
 
 The plugin runs on the same machine as `agy`, so paths and process limits are

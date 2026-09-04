@@ -22,6 +22,10 @@ import {
   type AntigravityModel,
 } from "./models.js";
 import { probeAgy, type AgyProbeResult } from "./probe.js";
+import {
+  buildCrossProviderCatchUp,
+  DEFAULT_CATCH_UP_MAX_CHARS,
+} from "./session-continuity.js";
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
@@ -229,6 +233,40 @@ export async function listGoogleAntigravityCatalog(
   );
 }
 
+// A resumed agy conversation only contains turns agy itself ran. When a
+// session spends turns on another provider and comes back, openclaw reuses the
+// stored binding and sends just the new message, so agy never sees the gap.
+// `before_prompt_build` runs on the CLI path with the session transcript, and
+// its `prependContext` is folded into the outgoing prompt, which makes it the
+// place to hand agy the turns it missed.
+export function registerAntigravityCatchUpHook(
+  api: OpenClawPluginApi,
+  providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+): void {
+  const register = (api as { registerHook?: unknown }).registerHook;
+  // Older gateways within our supported range may not expose registerHook.
+  // Catch-up is an enhancement, so degrade to the previous behaviour instead
+  // of failing plugin load.
+  if (typeof register !== "function") return;
+
+  api.registerHook("before_prompt_build", ((event: any, ctx: any) => {
+    // Only our own turns: another provider's turn needs no agy catch-up.
+    if (
+      typeof ctx?.modelProviderId !== "string" ||
+      ctx.modelProviderId.trim().toLowerCase() !== providerId
+    ) {
+      return;
+    }
+    const catchUp = buildCrossProviderCatchUp({
+      messages: Array.isArray(event?.messages) ? event.messages : [],
+      providerId,
+      currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
+      maxChars: DEFAULT_CATCH_UP_MAX_CHARS,
+    });
+    return catchUp ? { prependContext: catchUp } : undefined;
+  }) as never);
+}
+
 const plugin: OpenClawPluginDefinition = definePluginEntry({
   id: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   name: "Google Antigravity CLI Provider",
@@ -247,6 +285,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     // sidebar. Continues resume via `agy --conversation <id>` through
     // the CLI backend registered above.
     registerAntigravitySessionCatalog(api);
+    registerAntigravityCatchUpHook(api);
   },
 });
 
