@@ -14,15 +14,19 @@ export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
   "google-antigravity-cli/gemini-3.7-flash";
 
 export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
-  // Human shortcuts collapse to the base family; the effort slider
-  // supplies the level at execution time.
+  // Bare shortcuts map to the base family, where the thinking-level slider
+  // supplies the effort at execution time. Shortcuts that *name* an effort
+  // resolve to the matching effort-baked id instead — collapsing them to the
+  // base family would drop the level the user explicitly asked for and let
+  // the slider silently override it.
   flash: "gemini-3.7-flash",
-  "flash-high": "gemini-3.7-flash",
-  "flash-medium": "gemini-3.7-flash",
-  "flash-low": "gemini-3.7-flash",
+  "flash-high": "gemini-3.7-flash-high",
+  "flash-medium": "gemini-3.7-flash-medium",
+  "flash-low": "gemini-3.7-flash-low",
   pro: "gemini-3.1-pro",
-  "pro-low": "gemini-3.1-pro",
-  "pro-high": "gemini-3.1-pro",
+  // agy publishes Pro as high/low only — there is no `gemini-3.1-pro-medium`.
+  "pro-low": "gemini-3.1-pro-low",
+  "pro-high": "gemini-3.1-pro-high",
   sonnet: "claude-sonnet-4-6",
   opus: "claude-opus-4-6-thinking",
   gpt: "gpt-oss-120b-medium",
@@ -54,14 +58,21 @@ export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   "gpt-oss-120b": "gpt-oss-120b-medium",
 };
 
+export type AgyEffort = "low" | "medium" | "high";
+
+// Effort used when a model needs `--effort` but openclaw gave us no usable
+// thinking level. agy has no "off", so the slider being off or unset lands on
+// its cheapest setting rather than silently upgrading the request.
+export const DEFAULT_AGY_EFFORT: AgyEffort = "low";
+
 // Openclaw exposes eight canonical thinking levels; agy accepts three.
 // `off`/`minimal`/`low` → `low`, `medium`/`adaptive` → `medium`,
 // `high`/`xhigh`/`max` → `high`. An unrecognized or missing level returns
-// `undefined`, in which case we don't inject `--effort` at all and agy
-// uses its own default for the selected model.
+// `undefined`; callers that must supply an effort fall back to
+// DEFAULT_AGY_EFFORT.
 export function mapThinkingLevelToAgyEffort(
   level?: string,
-): "low" | "medium" | "high" | undefined {
+): AgyEffort | undefined {
   switch (level) {
     case "off":
     case "minimal":
@@ -82,9 +93,62 @@ export function mapThinkingLevelToAgyEffort(
 // Effort-baked model IDs (e.g. `gemini-3.7-flash-high`) already carry the
 // level via the ID itself; injecting `--effort` on top is redundant. Keep
 // the injection behavior strictly opt-in per model.
-function modelIdHasBakedEffort(modelId: string): boolean {
+export function modelIdHasBakedEffort(modelId: string): boolean {
   if (!modelId.startsWith("gemini-")) return false;
   return /-(?:high|medium|low)$/.test(modelId);
+}
+
+// Only the Gemini families take `--effort`. agy rejects the flag outright for
+// the others:
+//   invalid model selection (--model "claude-sonnet-4-6" --effort "high"):
+//   --effort is not supported for model "claude-sonnet-4-6"
+// GPT-OSS is published as `gpt-oss-120b-medium`, i.e. its level is part of the
+// id, so it needs nothing injected either.
+export function modelSupportsEffortFlag(modelId: string): boolean {
+  return modelId.startsWith("gemini-");
+}
+
+// Collapsed Gemini base ids do not exist in agy's own catalog — `agy models`
+// only lists the effort-baked rows — so agy refuses to run them bare:
+//   --model gemini-3.7-flash requires --effort (available: low, medium, high)
+// Any Gemini id without a baked suffix therefore *must* carry `--effort`.
+export function modelRequiresEffortFlag(modelId: string): boolean {
+  return modelSupportsEffortFlag(modelId) && !modelIdHasBakedEffort(modelId);
+}
+
+const EFFORT_ORDER: readonly AgyEffort[] = ["low", "medium", "high"];
+
+// Not every family offers all three levels. `agy models` lists Pro as only
+// `gemini-3.1-pro-high` and `gemini-3.1-pro-low`, and agy rejects the middle:
+//   invalid model selection (--model "gemini-3.1-pro" --effort "medium"):
+//   gemini-3.1-pro has no "medium" effort (available: low, high)
+// Families absent from this map are assumed to offer all three, which matches
+// every Flash row agy currently publishes.
+const MODEL_AVAILABLE_EFFORTS: Record<string, readonly AgyEffort[]> = {
+  "gemini-3.1-pro": ["low", "high"],
+};
+
+export function availableEffortsForModel(modelId: string): readonly AgyEffort[] {
+  return MODEL_AVAILABLE_EFFORTS[modelId] ?? EFFORT_ORDER;
+}
+
+// Snap a requested effort onto what the family actually supports. Ties break
+// downward, so a `medium` slider on Pro resolves to `low` rather than silently
+// upgrading the request to `high`.
+export function clampEffortForModel(modelId: string, effort: AgyEffort): AgyEffort {
+  const available = availableEffortsForModel(modelId);
+  if (available.includes(effort)) return effort;
+  const target = EFFORT_ORDER.indexOf(effort);
+  let best = available[0]!;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of available) {
+    const distance = Math.abs(EFFORT_ORDER.indexOf(candidate) - target);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 const CONVERSATION_ID_PATTERN =
@@ -380,22 +444,24 @@ export function resolveGoogleAntigravityExecutionArgs(
     args.push("--output-format", "stream-json");
   }
 
-  // Wire openclaw's thinking-level slider into agy's `--effort` flag when
-  // the selected model doesn't already bake the level into its ID. `agy`
-  // is happy to accept both `--model <family>` + `--effort <level>` and
-  // the older `--model <family>-<level>` shape; we prefer the former so
-  // the slider stays authoritative for base-ID rows.
+  // Wire openclaw's thinking-level slider into agy's `--effort` flag. Only
+  // collapsed Gemini base ids take the flag, and for them it is mandatory —
+  // agy refuses to run them without it. Every other family either rejects
+  // `--effort` outright (Claude) or bakes its level into the id (GPT-OSS,
+  // effort-suffixed Gemini rows), so they get nothing injected.
   const rawModelId = context.modelId?.trim() ?? "";
   const modelIdWithoutProvider = rawModelId.includes("/")
     ? rawModelId.slice(rawModelId.lastIndexOf("/") + 1)
     : rawModelId;
-  const effort = mapThinkingLevelToAgyEffort(context.thinkingLevel);
   if (
-    effort &&
-    !args.includes("--effort") &&
-    !modelIdHasBakedEffort(modelIdWithoutProvider)
+    modelRequiresEffortFlag(modelIdWithoutProvider) &&
+    !args.includes("--effort")
   ) {
-    args.push("--effort", effort);
+    // The slider being off or unset resolves to DEFAULT_AGY_EFFORT rather
+    // than omitting the flag, which would make agy reject the run.
+    const requested =
+      mapThinkingLevelToAgyEffort(context.thinkingLevel) ?? DEFAULT_AGY_EFFORT;
+    args.push("--effort", clampEffortForModel(modelIdWithoutProvider, requested));
   }
 
   return args;

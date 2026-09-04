@@ -98,6 +98,33 @@ To stream thinking and response deltas in real-time to the OpenClaw Web UI, enab
 }
 ```
 
+## Model Routing & Effort
+
+`agy models` publishes the Gemini families only as effort-baked rows
+(`gemini-3.7-flash-high`, `-medium`, `-low`). The plugin collapses them to one
+row per family and supplies the level at execution time, which means `--effort`
+handling has to follow agy's rules exactly:
+
+| Model | `--effort` |
+| --- | --- |
+| Collapsed Gemini base id (`gemini-3.7-flash`) | **Required.** agy refuses to run it bare: `--model gemini-3.7-flash requires --effort` |
+| Effort-baked Gemini id (`gemini-3.8-flash-medium`) | Not sent — the level is already in the id |
+| Claude (`claude-sonnet-4-6`, `claude-opus-4-6-thinking`) | Never sent. agy: `--effort is not supported for model "claude-sonnet-4-6"` |
+| GPT-OSS (`gpt-oss-120b-medium`) | Never sent — the level is part of the id |
+
+Slider mapping: `off`/`minimal`/`low` → `low`, `medium`/`adaptive` → `medium`,
+`high`/`xhigh`/`max` → `high`. When the slider is **off or unset**, models that
+require an effort get `low` rather than no flag at all.
+
+Levels are also clamped to what a family actually offers. Gemini 3.1 Pro ships
+only `low` and `high` (`gemini-3.1-pro has no "medium" effort`), so a `medium`
+slider resolves to `low` there — ties break downward so a request is never
+silently upgraded to a more expensive level.
+
+Aliases that name an effort (`flash-high`, `pro-low`) resolve to the matching
+effort-baked id, so the level you asked for survives instead of being handed
+back to the slider. Bare aliases (`flash`, `pro`) stay on the base family.
+
 ## Image Input
 
 Gemini and Claude models accept image attachments. GPT-OSS 120B does not and stays

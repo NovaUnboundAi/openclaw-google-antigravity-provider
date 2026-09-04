@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  availableEffortsForModel,
   buildGoogleAntigravityCliBackend,
+  clampEffortForModel,
   GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   mapThinkingLevelToAgyEffort,
@@ -50,7 +52,7 @@ describe("google-antigravity-cli CLI backend", () => {
     expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES).toMatchObject({
       flash: "gemini-3.7-flash",
       pro: "gemini-3.1-pro",
-      "pro-high": "gemini-3.1-pro",
+      "pro-high": "gemini-3.1-pro-high",
       sonnet: "claude-sonnet-4-6",
     });
   });
@@ -97,6 +99,10 @@ describe("google-antigravity-cli CLI backend", () => {
       "900s",
       "--output-format",
       "stream-json",
+      // Base Gemini id with no slider value: agy requires an effort, so the
+      // default is supplied rather than omitted.
+      "--effort",
+      "low",
     ]);
 
     // 2. Custom print timeout in plugin config
@@ -129,6 +135,8 @@ describe("google-antigravity-cli CLI backend", () => {
       "15m0s",
       "--output-format",
       "stream-json",
+      "--effort",
+      "low",
     ]);
 
     // 3. Streaming explicitly disabled
@@ -158,7 +166,40 @@ describe("google-antigravity-cli CLI backend", () => {
       "{prompt}",
       "--print-timeout",
       "30m0s",
+      "--effort",
+      "low",
     ]);
+  });
+
+  describe("model aliases", () => {
+    it("keeps effort-naming shortcuts pointed at effort-baked ids", () => {
+      // Collapsing these to the base family would drop the level the user
+      // asked for and hand control back to the slider.
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-high"]).toBe("gemini-3.7-flash-high");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-low"]).toBe("gemini-3.7-flash-low");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["pro-high"]).toBe("gemini-3.1-pro-high");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["pro-low"]).toBe("gemini-3.1-pro-low");
+    });
+
+    it("leaves bare shortcuts on the base family for the slider to drive", () => {
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES.flash).toBe("gemini-3.7-flash");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES.pro).toBe("gemini-3.1-pro");
+    });
+
+    it("resolves every alias target to a real agy model id", () => {
+      // `agy models` rows, plus the effort-baked variants it publishes.
+      const real = new Set([
+        "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-pro",
+        "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+        "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+        "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low",
+        "gemini-3.1-pro-high", "gemini-3.1-pro-low",
+        "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium",
+      ]);
+      for (const [alias, target] of Object.entries(GOOGLE_ANTIGRAVITY_MODEL_ALIASES)) {
+        expect(real.has(target), `${alias} -> ${target}`).toBe(true);
+      }
+    });
   });
 
   describe("thinking level → --effort mapping", () => {
@@ -213,19 +254,80 @@ describe("google-antigravity-cli CLI backend", () => {
       expect(args).not.toContain("--effort");
     });
 
-    it("skips --effort when the slider is off/unset", () => {
-      const args = resolveGoogleAntigravityExecutionArgs({
-        config: undefined as any,
-        workspaceDir: "/tmp",
-        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-        modelId: "gemini-3.8-flash",
-        authProfileId: undefined,
-        thinkingLevel: undefined,
-        executionMode: "agent",
-        useResume: false,
-        baseArgs,
-      });
-      expect(args).not.toContain("--effort");
+    it("falls back to low when the slider is off, unset, or unrecognized", () => {
+      // A collapsed Gemini base id is not in agy's own catalog, so agy rejects
+      // it without an effort: `--model gemini-3.8-flash requires --effort`.
+      // Omitting the flag here would fail every request.
+      for (const thinkingLevel of [undefined, "off", "mystery"]) {
+        const args = resolveGoogleAntigravityExecutionArgs({
+          config: undefined as any,
+          workspaceDir: "/tmp",
+          provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+          modelId: "gemini-3.8-flash",
+          authProfileId: undefined,
+          thinkingLevel: thinkingLevel as any,
+          executionMode: "agent",
+          useResume: false,
+          baseArgs,
+        });
+        expect(args).toContain("--effort");
+        expect(args[args.indexOf("--effort") + 1]).toBe("low");
+      }
+    });
+
+    it("clamps a requested effort onto what the family actually offers", () => {
+      // agy: `gemini-3.1-pro has no "medium" effort (available: low, high)`.
+      // Ties break downward so a medium slider does not silently buy `high`.
+      for (const level of ["medium", "adaptive"]) {
+        const args = resolveGoogleAntigravityExecutionArgs({
+          config: undefined as any,
+          workspaceDir: "/tmp",
+          provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+          modelId: "google-antigravity-cli/gemini-3.1-pro",
+          authProfileId: undefined,
+          thinkingLevel: level as any,
+          executionMode: "agent",
+          useResume: false,
+          baseArgs,
+        });
+        expect(args[args.indexOf("--effort") + 1]).toBe("low");
+      }
+    });
+
+    it("leaves supported efforts untouched", () => {
+      expect(clampEffortForModel("gemini-3.1-pro", "high")).toBe("high");
+      expect(clampEffortForModel("gemini-3.1-pro", "low")).toBe("low");
+      expect(clampEffortForModel("gemini-3.1-pro", "medium")).toBe("low");
+      // Flash families publish all three levels.
+      expect(clampEffortForModel("gemini-3.7-flash", "medium")).toBe("medium");
+      expect(availableEffortsForModel("gemini-3.7-flash")).toEqual([
+        "low",
+        "medium",
+        "high",
+      ]);
+    });
+
+    it("never sends --effort to families that reject it", () => {
+      // agy: `--effort is not supported for model "claude-sonnet-4-6"`.
+      // GPT-OSS carries its level in the id, so it needs nothing injected.
+      for (const modelId of [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6-thinking",
+        "gpt-oss-120b-medium",
+      ]) {
+        const args = resolveGoogleAntigravityExecutionArgs({
+          config: undefined as any,
+          workspaceDir: "/tmp",
+          provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+          modelId: `google-antigravity-cli/${modelId}`,
+          authProfileId: undefined,
+          thinkingLevel: "high",
+          executionMode: "agent",
+          useResume: false,
+          baseArgs,
+        });
+        expect(args).not.toContain("--effort");
+      }
     });
 
     it("respects an --effort already present in baseArgs", () => {

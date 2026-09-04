@@ -24,12 +24,12 @@
       "google-antigravity-cli": {
         "aliases": {
           "flash": "gemini-3.7-flash",
-          "flash-high": "gemini-3.7-flash",
-          "flash-medium": "gemini-3.7-flash",
-          "flash-low": "gemini-3.7-flash",
+          "flash-high": "gemini-3.7-flash-high",
+          "flash-medium": "gemini-3.7-flash-medium",
+          "flash-low": "gemini-3.7-flash-low",
           "pro": "gemini-3.1-pro",
-          "pro-low": "gemini-3.1-pro",
-          "pro-high": "gemini-3.1-pro",
+          "pro-low": "gemini-3.1-pro-low",
+          "pro-high": "gemini-3.1-pro-high",
           "sonnet": "claude-sonnet-4-6",
           "opus": "claude-opus-4-6-thinking",
           "gpt": "gpt-oss-120b-medium"
