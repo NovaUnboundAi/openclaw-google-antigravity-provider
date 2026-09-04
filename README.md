@@ -290,8 +290,14 @@ of silently doing nothing.
 OpenClaw agents get their behaviour from workspace bootstrap files, and by
 default none of them reached agy, so an agy turn answered as stock Antigravity
 instead of as your agent. The plugin now reads the same files OpenClaw does —
-`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`,
-in that order — and hands them to agy in the prompt.
+`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`, in that order —
+and hands them to agy in the prompt.
+
+`BOOTSTRAP.md` is deliberately **excluded**. OpenClaw drives it as a dedicated
+one-time run (*"read BOOTSTRAP.md from the workspace now and follow it before
+replying normally"*) and the file is deleted once bootstrap completes. Shipping
+it as standing instructions would invite agy to re-run a bootstrap procedure on
+ordinary turns.
 
 Measured against agy 1.0.14, with an `AGENTS.md` saying *"always answer in
 exactly one sentence"* and a `SOUL.md` saying *"you are Ada, dry and precise"*:
@@ -307,11 +313,17 @@ shared one. Delivery is tracked per agent *and* workspace, so two agents in one
 gateway never consume each other's state.
 
 **Sent once per agy conversation, not per turn.** Delivery is keyed on the agy
-conversation id bound to the workspace, so the block goes out when a
-conversation is first created and then stays quiet. If the binding is lost or
-replaced — a new conversation id appears — the fresh conversation has never seen
-the instructions, so they are sent again. Restarting the gateway clears the
-in-memory tracker, which costs one extra delivery and nothing else.
+conversation id bound to the workspace *and* a fingerprint of the instructions
+on disk, so the block goes out when a conversation is first created and then
+stays quiet. It is sent again when either changes:
+
+- the conversation id differs — the binding was lost or replaced, and the new
+  conversation has never seen the instructions;
+- the fingerprint differs — a file was edited, added, or deleted, so the live
+  conversation is carrying a stale copy.
+
+Restarting the gateway clears the in-memory tracker, which costs one extra
+delivery and nothing else.
 
 Budget is 16,000 chars (6,000 on Windows, where the whole command line is capped
 near 32,767). Earlier files win, since OpenClaw's ordering puts operating

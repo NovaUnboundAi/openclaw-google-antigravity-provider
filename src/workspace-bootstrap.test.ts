@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWorkspaceContextBlock,
+  workspaceBootstrapFingerprint,
   defaultWorkspaceContextMaxChars,
   readWorkspaceBootstrapFiles,
   WORKSPACE_BOOTSTRAP_FILENAMES,
@@ -17,9 +18,33 @@ describe("WORKSPACE_BOOTSTRAP_FILENAMES", () => {
       "SOUL.md",
       "IDENTITY.md",
       "USER.md",
-      "BOOTSTRAP.md",
       "MEMORY.md",
     ]);
+  });
+
+  it("excludes BOOTSTRAP.md, which is a one-time flow and gets deleted", () => {
+    // openclaw drives BOOTSTRAP.md as a dedicated run ("read BOOTSTRAP.md ...
+    // and follow it before replying normally") and the file is removed once
+    // bootstrap completes. Shipping it as standing instructions would invite
+    // agy to re-run bootstrap on ordinary turns.
+    expect([...WORKSPACE_BOOTSTRAP_FILENAMES]).not.toContain("BOOTSTRAP.md");
+  });
+});
+
+describe("workspaceBootstrapFingerprint", () => {
+  it("is stable for identical instruction sets", () => {
+    const a = [{ name: "AGENTS.md", content: "x" }];
+    expect(workspaceBootstrapFingerprint(a)).toBe(workspaceBootstrapFingerprint([...a]));
+  });
+
+  it("changes when a file is edited, added, or removed", () => {
+    const base = [{ name: "AGENTS.md", content: "x" }];
+    const edited = [{ name: "AGENTS.md", content: "y" }];
+    const added = [...base, { name: "SOUL.md", content: "z" }];
+    const f = workspaceBootstrapFingerprint(base);
+    expect(workspaceBootstrapFingerprint(edited)).not.toBe(f);
+    expect(workspaceBootstrapFingerprint(added)).not.toBe(f);
+    expect(workspaceBootstrapFingerprint([])).not.toBe(f);
   });
 });
 
@@ -102,6 +127,16 @@ describe("WorkspaceContextDeliveryTracker", () => {
     // Turn 2: the conversation created by turn 1 already carries the block.
     expect(t.shouldSend("main", "/ws", CID_A)).toBe(false);
     expect(t.shouldSend("main", "/ws", CID_A)).toBe(false);
+  });
+
+  it("resends when the instructions on disk change", () => {
+    const t = new WorkspaceContextDeliveryTracker();
+    t.shouldSend("main", "/ws", undefined, "fp1");
+    expect(t.shouldSend("main", "/ws", CID_A, "fp1")).toBe(false);
+    // AGENTS.md edited, or BOOTSTRAP.md deleted: the live conversation still
+    // carries the old copy, so send the new one.
+    expect(t.shouldSend("main", "/ws", CID_A, "fp2")).toBe(true);
+    expect(t.shouldSend("main", "/ws", CID_A, "fp2")).toBe(false);
   });
 
   it("resends when the conversation is replaced (binding lost)", () => {

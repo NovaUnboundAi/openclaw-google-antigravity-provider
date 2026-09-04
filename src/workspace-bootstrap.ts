@@ -17,15 +17,23 @@
 // the prompt. The filenames mirror openclaw's WORKSPACE_BOOTSTRAP_FILENAMES,
 // in its order.
 
+import crypto from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
+// openclaw's WORKSPACE_BOOTSTRAP_FILENAMES, minus BOOTSTRAP.md.
+//
+// BOOTSTRAP.md is not standing guidance. openclaw drives it as a dedicated
+// one-time run that tells the agent "Please read BOOTSTRAP.md from the
+// workspace now and follow it before replying normally", and the file is
+// deleted once bootstrap completes ("user deletes canonical BOOTSTRAP.md after
+// completion"). Shipping it as permanent workspace instructions would invite
+// agy to re-run a bootstrap procedure on ordinary turns, so it is left out.
 export const WORKSPACE_BOOTSTRAP_FILENAMES = [
   "AGENTS.md",
   "SOUL.md",
   "IDENTITY.md",
   "USER.md",
-  "BOOTSTRAP.md",
   "MEMORY.md",
 ] as const;
 
@@ -70,6 +78,19 @@ export async function readWorkspaceBootstrapFiles(
     if (content) out.push({ name, content });
   }
   return out;
+}
+
+// Identity of the instruction set currently on disk. Editing AGENTS.md, adding
+// SOUL.md, or deleting a file all change it, which is what re-triggers delivery
+// to a conversation that is otherwise still healthy.
+export function workspaceBootstrapFingerprint(
+  files: readonly WorkspaceBootstrapFile[],
+): string {
+  const hash = crypto.createHash("sha256");
+  for (const file of files) {
+    hash.update(file.name).update("\0").update(file.content).update("\0");
+  }
+  return hash.digest("hex").slice(0, 32);
 }
 
 export type BuildWorkspaceContextParams = {
@@ -137,7 +158,7 @@ export function buildWorkspaceContextBlock(
 // each other's delivery state.
 export class WorkspaceContextDeliveryTracker {
   private readonly delivered = new Map<string, string>();
-  private readonly pending = new Set<string>();
+  private readonly pending = new Map<string, string>();
 
   static key(agentId: string | undefined, workspaceDir: string): string {
     return `${agentId?.trim() || "-"}::${workspaceDir}`;
@@ -145,28 +166,34 @@ export class WorkspaceContextDeliveryTracker {
 
   // `conversationId` is the agy conversation currently bound to this
   // workspace, or undefined when none exists yet.
+  // `conversationId` is the agy conversation currently bound to this
+  // workspace, or undefined when none exists yet. `fingerprint` identifies the
+  // instruction set on disk, so an edit re-delivers into a live conversation.
   shouldSend(
     agentId: string | undefined,
     workspaceDir: string,
     conversationId: string | undefined,
+    fingerprint = "",
   ): boolean {
     const key = WorkspaceContextDeliveryTracker.key(agentId, workspaceDir);
+    const stamp = `${conversationId ?? ""}::${fingerprint}`;
     if (!conversationId) {
       // No conversation yet: this turn creates one, and it needs the block.
-      this.pending.add(key);
+      this.pending.set(key, fingerprint);
       return true;
     }
-    if (this.pending.has(key)) {
-      // The previous turn sent the block and this is the conversation it
-      // created, so it is already carried in that conversation's history.
+    if (this.pending.get(key) === fingerprint) {
+      // The previous turn sent this exact instruction set and this is the
+      // conversation it created, so that history already carries it.
       this.pending.delete(key);
-      this.delivered.set(key, conversationId);
+      this.delivered.set(key, stamp);
       return false;
     }
-    if (this.delivered.get(key) === conversationId) return false;
-    // A different conversation id means the binding was lost or replaced, and
-    // the new conversation has never seen the instructions.
-    this.delivered.set(key, conversationId);
+    this.pending.delete(key);
+    if (this.delivered.get(key) === stamp) return false;
+    // Either a different conversation (binding lost or replaced) or edited
+    // instructions. Both mean this conversation has not seen what is on disk.
+    this.delivered.set(key, stamp);
     return true;
   }
 

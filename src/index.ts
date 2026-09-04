@@ -33,6 +33,7 @@ import {
   buildWorkspaceContextBlock,
   defaultWorkspaceContextMaxChars,
   readWorkspaceBootstrapFiles,
+  workspaceBootstrapFingerprint,
   WorkspaceContextDeliveryTracker,
 } from "./workspace-bootstrap.js";
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
@@ -289,8 +290,14 @@ export function registerAntigravityCatchUpHook(
     if (workspaceDir) {
       try {
         const conversationId = await currentConversationId(workspaceDir);
-        if (tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId)) {
-          const files = await readWorkspaceBootstrapFiles(workspaceDir);
+        // Read first so an edit to the instructions re-delivers into a
+        // conversation that is otherwise still healthy.
+        const files = await readWorkspaceBootstrapFiles(workspaceDir);
+        const fingerprint = workspaceBootstrapFingerprint(files);
+        if (
+          files.length > 0 &&
+          tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId, fingerprint)
+        ) {
           const block = buildWorkspaceContextBlock({
             workspaceDir,
             agentId: typeof ctx?.agentId === "string" ? ctx.agentId : undefined,
