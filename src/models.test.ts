@@ -48,22 +48,28 @@ describe("deriveModelMetadata", () => {
 });
 
 describe("parseAgyModelsOutput", () => {
-  it("parses tab-separated id/name lines and drops noise", () => {
+  it("collapses gemini effort variants into a single base family entry", () => {
     const raw = [
       "Fetching available models...",
       "gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
       "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
+      "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
+      "gemini-3.7-flash-high\tGemini 3.7 Flash (High)",
+      "gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)",
+      "gemini-3.7-flash-low\tGemini 3.7 Flash (Low)",
       "",
       "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)",
       "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
     ].join("\n");
     const models = parseAgyModelsOutput(raw);
     expect(models.map((m) => m.id)).toEqual([
-      "gemini-3.8-flash-high",
-      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash",
+      "gemini-3.7-flash",
       "claude-sonnet-4-6",
       "gpt-oss-120b-medium",
     ]);
+    const flash = models.find((m) => m.id === "gemini-3.8-flash");
+    expect(flash?.name).toBe("Gemini 3.8 Flash");
     const claude = models.find((m) => m.id === "claude-sonnet-4-6");
     expect(claude).toEqual({
       id: "claude-sonnet-4-6",
@@ -73,9 +79,9 @@ describe("parseAgyModelsOutput", () => {
     });
   });
 
-  it("deduplicates repeated ids", () => {
-    const raw = "gemini-3.7-flash-high\tA\ngemini-3.7-flash-high\tB";
-    expect(parseAgyModelsOutput(raw).map((m) => m.id)).toEqual(["gemini-3.7-flash-high"]);
+  it("deduplicates the first-seen collapsed gemini id", () => {
+    const raw = "gemini-3.7-flash-high\tA\ngemini-3.7-flash-medium\tB";
+    expect(parseAgyModelsOutput(raw).map((m) => m.id)).toEqual(["gemini-3.7-flash"]);
   });
 
   it("returns [] for empty or garbage output", () => {
@@ -107,6 +113,7 @@ describe("getLiveAntigravityModels", () => {
   afterEach(() => clearAntigravityModelsCache());
 
   const twoModels = "gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)";
+  // After parseAgyModelsOutput collapse, gemini-3.7-flash-medium becomes gemini-3.7-flash.
 
   const okRunner = (stdout: string): AgyModelsRunner => async () => ({
     stdout,
@@ -125,7 +132,7 @@ describe("getLiveAntigravityModels", () => {
     const first = await getLiveAntigravityModels({ runner, ttlMs: 60_000 });
     expect(first?.source).toBe("live");
     expect(first?.models.map((m) => m.id)).toEqual([
-      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash",
       "claude-sonnet-4-6",
     ]);
     expect(runner).toHaveBeenCalledTimes(1);
@@ -190,12 +197,23 @@ describe("getLiveAntigravityModels", () => {
 });
 
 describe("STATIC_MODEL_FALLBACK", () => {
-  it("uses real agy IDs (dashes, effort suffix)", () => {
+  it("exposes gemini families as collapsed base IDs", () => {
     const ids = STATIC_MODEL_FALLBACK.map((m) => m.id);
-    // Claude/Opus IDs must use dashes, not dots — those are display labels.
+    // Gemini families are collapsed; effort is supplied by the slider at
+    // execution time via `--effort`.
+    expect(ids).toContain("gemini-3.8-flash");
+    expect(ids).toContain("gemini-3.7-flash");
+    expect(ids).toContain("gemini-3.6-flash");
+    expect(ids).toContain("gemini-3.1-pro");
+    for (const suffix of ["-high", "-medium", "-low"]) {
+      expect(ids.some((id) => id.startsWith("gemini-") && id.endsWith(suffix))).toBe(false);
+    }
+  });
+
+  it("keeps Claude/GPT-OSS IDs canonical (dashes, real suffix)", () => {
+    const ids = STATIC_MODEL_FALLBACK.map((m) => m.id);
     expect(ids).toContain("claude-sonnet-4-6");
     expect(ids).not.toContain("claude-sonnet-4.6");
-    // GPT-OSS must include the effort suffix.
     expect(ids).toContain("gpt-oss-120b-medium");
     expect(ids).not.toContain("gpt-oss-120b");
   });

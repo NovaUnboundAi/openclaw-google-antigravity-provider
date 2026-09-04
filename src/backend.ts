@@ -11,19 +11,32 @@ import { DEFAULT_PRINT_TIMEOUT, formatGoDuration } from "./config.js";
 
 export const GOOGLE_ANTIGRAVITY_PROVIDER_ID = "google-antigravity-cli";
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
-  "google-antigravity-cli/gemini-3.7-flash-medium";
+  "google-antigravity-cli/gemini-3.7-flash";
 
 export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
-  flash: "gemini-3.7-flash-medium",
-  "flash-high": "gemini-3.7-flash-high",
-  "flash-medium": "gemini-3.7-flash-medium",
-  "flash-low": "gemini-3.7-flash-low",
-  pro: "gemini-3.1-pro-high",
-  "pro-low": "gemini-3.1-pro-low",
-  "pro-high": "gemini-3.1-pro-high",
-  sonnet: "claude-sonnet-4.6",
-  opus: "claude-opus-4.6",
-  gpt: "gpt-oss-120b",
+  // Human shortcuts collapse to the base family; the effort slider
+  // supplies the level at execution time.
+  flash: "gemini-3.7-flash",
+  "flash-high": "gemini-3.7-flash",
+  "flash-medium": "gemini-3.7-flash",
+  "flash-low": "gemini-3.7-flash",
+  pro: "gemini-3.1-pro",
+  "pro-low": "gemini-3.1-pro",
+  "pro-high": "gemini-3.1-pro",
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-6-thinking",
+  gpt: "gpt-oss-120b-medium",
+  // Base identity aliases (canonical).
+  "gemini-3.8-flash": "gemini-3.8-flash",
+  "gemini-3.7-flash": "gemini-3.7-flash",
+  "gemini-3.6-flash": "gemini-3.6-flash",
+  "gemini-3.1-pro": "gemini-3.1-pro",
+  "claude-sonnet-4-6": "claude-sonnet-4-6",
+  "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+  "gpt-oss-120b-medium": "gpt-oss-120b-medium",
+  // Effort-baked identity aliases kept for existing configs: agy still
+  // accepts them, and the ID already carries the effort so nothing extra
+  // needs to be injected.
   "gemini-3.8-flash-high": "gemini-3.8-flash-high",
   "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
   "gemini-3.8-flash-low": "gemini-3.8-flash-low",
@@ -35,10 +48,44 @@ export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   "gemini-3.6-flash-low": "gemini-3.6-flash-low",
   "gemini-3.1-pro-low": "gemini-3.1-pro-low",
   "gemini-3.1-pro-high": "gemini-3.1-pro-high",
+  // Legacy dotted aliases from earlier README examples.
   "claude-sonnet-4.6": "claude-sonnet-4-6",
   "claude-opus-4.6": "claude-opus-4-6-thinking",
   "gpt-oss-120b": "gpt-oss-120b-medium",
 };
+
+// Openclaw exposes eight canonical thinking levels; agy accepts three.
+// `off`/`minimal`/`low` → `low`, `medium`/`adaptive` → `medium`,
+// `high`/`xhigh`/`max` → `high`. An unrecognized or missing level returns
+// `undefined`, in which case we don't inject `--effort` at all and agy
+// uses its own default for the selected model.
+export function mapThinkingLevelToAgyEffort(
+  level?: string,
+): "low" | "medium" | "high" | undefined {
+  switch (level) {
+    case "off":
+    case "minimal":
+    case "low":
+      return "low";
+    case "medium":
+    case "adaptive":
+      return "medium";
+    case "high":
+    case "xhigh":
+    case "max":
+      return "high";
+    default:
+      return undefined;
+  }
+}
+
+// Effort-baked model IDs (e.g. `gemini-3.7-flash-high`) already carry the
+// level via the ID itself; injecting `--effort` on top is redundant. Keep
+// the injection behavior strictly opt-in per model.
+function modelIdHasBakedEffort(modelId: string): boolean {
+  if (!modelId.startsWith("gemini-")) return false;
+  return /-(?:high|medium|low)$/.test(modelId);
+}
 
 const CONVERSATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -246,7 +293,8 @@ export function parseGoogleAntigravityJsonlEvent(
     } else {
       events.push({
         kind: "result",
-        text: typeof res.response === "string" ? res.response : "",
+        text:
+          typeof res.response === "string" ? res.response : "",
         sessionId: typeof res.conversation_id === "string" ? res.conversation_id : undefined,
         usage,
       });
@@ -332,6 +380,24 @@ export function resolveGoogleAntigravityExecutionArgs(
     args.push("--output-format", "stream-json");
   }
 
+  // Wire openclaw's thinking-level slider into agy's `--effort` flag when
+  // the selected model doesn't already bake the level into its ID. `agy`
+  // is happy to accept both `--model <family>` + `--effort <level>` and
+  // the older `--model <family>-<level>` shape; we prefer the former so
+  // the slider stays authoritative for base-ID rows.
+  const rawModelId = context.modelId?.trim() ?? "";
+  const modelIdWithoutProvider = rawModelId.includes("/")
+    ? rawModelId.slice(rawModelId.lastIndexOf("/") + 1)
+    : rawModelId;
+  const effort = mapThinkingLevelToAgyEffort(context.thinkingLevel);
+  if (
+    effort &&
+    !args.includes("--effort") &&
+    !modelIdHasBakedEffort(modelIdWithoutProvider)
+  ) {
+    args.push("--effort", effort);
+  }
+
   return args;
 }
 
@@ -345,7 +411,7 @@ export function buildGoogleAntigravityCliBackend(
   const backend: CliBackendPlugin = {
     id: backendId,
     modelProvider: backendId,
-    liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash-medium` },
+    liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash` },
     nativeToolMode: "always-on",
     ownsNativeCompaction: true,
     normalizeConfig: normalizeGoogleAntigravityBackendConfig,

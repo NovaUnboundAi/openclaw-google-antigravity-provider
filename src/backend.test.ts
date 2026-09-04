@@ -3,6 +3,7 @@ import {
   buildGoogleAntigravityCliBackend,
   GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+  mapThinkingLevelToAgyEffort,
   normalizeGoogleAntigravityBackendConfig,
   parseGoogleAntigravityJsonlEvent,
   resolveGoogleAntigravityExecutionArgs,
@@ -47,10 +48,10 @@ describe("google-antigravity-cli CLI backend", () => {
       }),
     );
     expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES).toMatchObject({
-      flash: "gemini-3.7-flash-medium",
-      pro: "gemini-3.1-pro-high",
-      "pro-high": "gemini-3.1-pro-high",
-      sonnet: "claude-sonnet-4.6",
+      flash: "gemini-3.7-flash",
+      pro: "gemini-3.1-pro",
+      "pro-high": "gemini-3.1-pro",
+      sonnet: "claude-sonnet-4-6",
     });
   });
 
@@ -63,7 +64,7 @@ describe("google-antigravity-cli CLI backend", () => {
         agents: {
           defaults: {
             models: {
-              "google-antigravity-cli/gemini-3.7-flash-medium": {
+              "google-antigravity-cli/gemini-3.7-flash": {
                 params: { timeoutSeconds: 900 },
               },
             },
@@ -72,7 +73,7 @@ describe("google-antigravity-cli CLI backend", () => {
       } as any,
       workspaceDir: "/tmp",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "google-antigravity-cli/gemini-3.7-flash-medium",
+      modelId: "google-antigravity-cli/gemini-3.7-flash",
       authProfileId: undefined,
       thinkingLevel: undefined,
       executionMode: "agent",
@@ -104,7 +105,7 @@ describe("google-antigravity-cli CLI backend", () => {
       } as any,
       workspaceDir: "/tmp",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "gemini-3.7-flash-medium",
+      modelId: "gemini-3.7-flash",
       authProfileId: undefined,
       thinkingLevel: undefined,
       executionMode: "agent",
@@ -135,7 +136,7 @@ describe("google-antigravity-cli CLI backend", () => {
       } as any,
       workspaceDir: "/tmp",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "gemini-3.7-flash-medium",
+      modelId: "gemini-3.7-flash",
       authProfileId: undefined,
       thinkingLevel: undefined,
       executionMode: "agent",
@@ -148,6 +149,93 @@ describe("google-antigravity-cli CLI backend", () => {
       "--print-timeout",
       "30m0s",
     ]);
+  });
+
+  describe("thinking level → --effort mapping", () => {
+    it("maps openclaw's 8 levels to agy's 3", () => {
+      expect(mapThinkingLevelToAgyEffort("off")).toBe("low");
+      expect(mapThinkingLevelToAgyEffort("minimal")).toBe("low");
+      expect(mapThinkingLevelToAgyEffort("low")).toBe("low");
+      expect(mapThinkingLevelToAgyEffort("medium")).toBe("medium");
+      expect(mapThinkingLevelToAgyEffort("adaptive")).toBe("medium");
+      expect(mapThinkingLevelToAgyEffort("high")).toBe("high");
+      expect(mapThinkingLevelToAgyEffort("xhigh")).toBe("high");
+      expect(mapThinkingLevelToAgyEffort("max")).toBe("high");
+    });
+
+    it("returns undefined for missing or unrecognized levels", () => {
+      expect(mapThinkingLevelToAgyEffort(undefined)).toBeUndefined();
+      expect(mapThinkingLevelToAgyEffort("mystery")).toBeUndefined();
+    });
+  });
+
+  describe("resolveGoogleAntigravityExecutionArgs --effort injection", () => {
+    const baseArgs = ["--print", "{prompt}", "--print-timeout", "30m0s"];
+
+    it("appends --effort for a base-family model when the slider maps", () => {
+      const args = resolveGoogleAntigravityExecutionArgs({
+        config: undefined as any,
+        workspaceDir: "/tmp",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        modelId: "google-antigravity-cli/gemini-3.8-flash",
+        authProfileId: undefined,
+        thinkingLevel: "high",
+        executionMode: "agent",
+        useResume: false,
+        baseArgs,
+      });
+      expect(args).toContain("--effort");
+      expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    });
+
+    it("skips --effort when the model id already bakes an effort suffix", () => {
+      const args = resolveGoogleAntigravityExecutionArgs({
+        config: undefined as any,
+        workspaceDir: "/tmp",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        modelId: "gemini-3.8-flash-medium",
+        authProfileId: undefined,
+        thinkingLevel: "high",
+        executionMode: "agent",
+        useResume: false,
+        baseArgs,
+      });
+      expect(args).not.toContain("--effort");
+    });
+
+    it("skips --effort when the slider is off/unset", () => {
+      const args = resolveGoogleAntigravityExecutionArgs({
+        config: undefined as any,
+        workspaceDir: "/tmp",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        modelId: "gemini-3.8-flash",
+        authProfileId: undefined,
+        thinkingLevel: undefined,
+        executionMode: "agent",
+        useResume: false,
+        baseArgs,
+      });
+      expect(args).not.toContain("--effort");
+    });
+
+    it("respects an --effort already present in baseArgs", () => {
+      const args = resolveGoogleAntigravityExecutionArgs({
+        config: undefined as any,
+        workspaceDir: "/tmp",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        modelId: "gemini-3.8-flash",
+        authProfileId: undefined,
+        thinkingLevel: "high",
+        executionMode: "agent",
+        useResume: false,
+        baseArgs: [...baseArgs, "--effort", "low"],
+      });
+      const first = args.indexOf("--effort");
+      expect(first).toBeGreaterThan(-1);
+      expect(args[first + 1]).toBe("low");
+      // Only one occurrence.
+      expect(args.lastIndexOf("--effort")).toBe(first);
+    });
   });
 
   it("normalizes output mode to jsonl when streaming is configured", () => {
@@ -325,7 +413,7 @@ describe("google-antigravity-cli CLI backend", () => {
     const prepared = await backend.prepareExecution?.({
       workspaceDir: "/tmp/workspace",
       provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
-      modelId: "gemini-3.7-flash-medium",
+      modelId: "gemini-3.7-flash",
     });
 
     expect(prepared).toEqual(

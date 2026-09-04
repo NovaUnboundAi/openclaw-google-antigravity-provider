@@ -12,24 +12,33 @@ export type AntigravityModel = {
 // plugin to expose *something* usable, without pretending to know the full
 // live catalog.
 export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
+  // Gemini families are exposed as one entry each; effort routes through
+  // openclaw's thinking-level slider → `agy --effort <low|medium|high>`.
   {
-    id: "gemini-3.7-flash-medium",
-    name: "Gemini 3.7 Flash (Medium)",
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
   },
   {
-    id: "gemini-3.7-flash-high",
-    name: "Gemini 3.7 Flash (High)",
+    id: "gemini-3.7-flash",
+    name: "Gemini 3.7 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
   },
   {
-    id: "gemini-3.7-flash-low",
-    name: "Gemini 3.7 Flash (Low)",
+    id: "gemini-3.6-flash",
+    name: "Gemini 3.6 Flash",
     reasoning: true,
     contextWindow: 1_000_000,
   },
+  {
+    id: "gemini-3.1-pro",
+    name: "Gemini 3.1 Pro",
+    reasoning: true,
+    contextWindow: 1_000_000,
+  },
+  // Non-Gemini families come as a single ID from agy so nothing to collapse.
   {
     id: "claude-sonnet-4-6",
     name: "Claude Sonnet 4.6 (Thinking)",
@@ -50,6 +59,25 @@ export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
   },
 ];
 
+// Gemini rows in `agy models` come as three effort-baked IDs per family
+// (`gemini-3.8-flash-high`, `-medium`, `-low`). Collapse them to the base
+// family ID so the openclaw picker shows one row per family and the
+// thinking-level slider drives `--effort` at execution time.
+const GEMINI_EFFORT_SUFFIX = /-(?:high|medium|low)$/;
+
+function stripGeminiEffortSuffix(id: string): string {
+  if (!id.startsWith("gemini-")) return id;
+  return id.replace(GEMINI_EFFORT_SUFFIX, "");
+}
+
+function humanizeBaseId(id: string): string {
+  // `gemini-3.8-flash` → `Gemini 3.8 Flash`
+  return id
+    .split("-")
+    .map((seg) => (seg.length ? seg[0]!.toUpperCase() + seg.slice(1) : seg))
+    .join(" ");
+}
+
 // `agy models` phones home to Google. Observed 15-20s on cold cache; 30s
 // gives headroom for slow networks without stalling the picker indefinitely.
 export const DEFAULT_LIVE_TIMEOUT_MS = 30_000;
@@ -64,9 +92,12 @@ export function deriveContextWindow(id: string): number {
 
 export function deriveReasoning(id: string, name = ""): boolean {
   // Every currently exposed agy model is reasoning-capable — either via an
-  // explicit effort suffix (-high/-medium/-low) or a Thinking variant.
+  // explicit effort suffix (-high/-medium/-low) after collapse, a Thinking
+  // variant, or a bare Gemini family (whose effort now flows through the
+  // slider → `agy --effort`).
   if (/-(?:high|medium|low)$/.test(id)) return true;
   if (/thinking/i.test(id) || /thinking/i.test(name)) return true;
+  if (id.startsWith("gemini-")) return true;
   return false;
 }
 
@@ -89,18 +120,28 @@ export function parseAgyModelsOutput(text: string): AntigravityModel[] {
     if (!line) continue;
     const tab = line.indexOf("\t");
     if (tab === -1) continue;
-    const id = line.slice(0, tab).trim();
-    const name = line.slice(tab + 1).trim();
-    // Model IDs never contain whitespace; this filters out header/status
-    // lines like "Fetching available models..." that leak into the output.
-    if (!id || /\s/.test(id) || !name) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
+    const rawId = line.slice(0, tab).trim();
+    const rawName = line.slice(tab + 1).trim();
+    if (!rawId || /\s/.test(rawId) || !rawName) continue;
+
+    const collapsedId = stripGeminiEffortSuffix(rawId);
+    if (seen.has(collapsedId)) continue;
+    seen.add(collapsedId);
+
+    // Collapsed rows lose the effort qualifier from the label, e.g.
+    // "Gemini 3.8 Flash (High)" → "Gemini 3.8 Flash". Non-Gemini rows keep
+    // their original label untouched.
+    const displayName =
+      collapsedId !== rawId
+        ? rawName.replace(/\s*\((?:High|Medium|Low)\)\s*$/i, "").trim() ||
+          humanizeBaseId(collapsedId)
+        : rawName;
+
     models.push({
-      id,
-      name,
-      reasoning: deriveReasoning(id, name),
-      contextWindow: deriveContextWindow(id),
+      id: collapsedId,
+      name: displayName,
+      reasoning: deriveReasoning(collapsedId, displayName),
+      contextWindow: deriveContextWindow(collapsedId),
     });
   }
   return models;

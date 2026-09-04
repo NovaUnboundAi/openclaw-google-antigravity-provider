@@ -36,10 +36,10 @@ describe("buildGoogleAntigravityProvider", () => {
   it("resolves dynamic models with derived metadata for any id", () => {
     const provider = buildGoogleAntigravityProvider();
 
-    const gemini = provider.resolveDynamicModel?.({ modelId: "gemini-3.7-flash-medium" } as any);
+    const gemini = provider.resolveDynamicModel?.({ modelId: "gemini-3.7-flash" } as any);
     expect(gemini).toEqual(
       expect.objectContaining({
-        id: "gemini-3.7-flash-medium",
+        id: "gemini-3.7-flash",
         provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
         contextWindow: 1_000_000,
         reasoning: true,
