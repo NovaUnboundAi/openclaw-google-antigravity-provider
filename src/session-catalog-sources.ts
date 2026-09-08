@@ -26,10 +26,26 @@ export type AntigravityTranscriptItem = {
   readonly toolName?: string;
 };
 
+// Rows agy has never touched for a given field carry Go's zero-value time
+// (`0001-01-01T00:00:00Z`). Its epoch offset is ~-62 trillion ms; the
+// openclaw session-catalog UI runs `now - createdAt` and renders the delta
+// as "X ago", so anything from year 1 AD blows the display up to "30965y
+// ago". Reject anything older than a plausible cutoff so the caller can
+// fall back or omit the field.
+const MIN_VALID_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+// agy writes Go's zero-value time as `0001-01-01 00:00:00+00:00`. Node's
+// Date.parse silently reinterprets that non-ISO-strict form as `2001-01-01`
+// (a legacy 2-digit-year quirk), so an epoch-only guard sails past. Match
+// the raw string too.
+const GO_ZERO_TIME_RE = /^000\d-01-01[ T]00:00:00/;
+
 function parseSqliteDatetime(raw: unknown): number | undefined {
   if (typeof raw !== "string" || !raw) return undefined;
+  if (GO_ZERO_TIME_RE.test(raw)) return undefined;
   const ms = Date.parse(raw);
-  return Number.isFinite(ms) ? ms : undefined;
+  if (!Number.isFinite(ms)) return undefined;
+  if (ms < MIN_VALID_TIMESTAMP_MS) return undefined;
+  return ms;
 }
 
 function parseWorkspaceUris(raw: unknown): string[] {
@@ -179,15 +195,52 @@ export type StepBlobText = {
   readonly text: string;
 };
 
+// Reject transcript strings that the schemaless protobuf walker surfaces
+// but that a reader would recognize as agy internals rather than dialog:
+// tool-call frames, control markers, UUID chains, and empty-ish glyphs
+// left behind when a payload starts with binary bytes the walker skipped.
+// This is a heuristic — a rare user message that happens to be exactly
+// `command()` or a bare UUID string won't survive — but the earlier
+// permissive filter surfaced too much protocol noise to be useful.
+const CONTROL_MARKER_RE = /<<<[A-Z_]+>>>/;
+const TOOL_CALL_FRAME_RE = /^[a-z][a-z0-9_]*\([^)]{0,60}\)$/;
+const UUID_CHAIN_RE = /^[$"\s]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}([$"\s]+[0-9a-fA-F-]{8,})*[$"\s]*$/;
+// The first bytes of a payload sometimes decode to length prefixes or
+// varints that render as replacement chars / box-drawing glyphs. Reject a
+// string whose leading run is >30% non-alphanumeric — real prose starts
+// with a letter or a punctuation mark, not with a run of glyphs.
+function hasControlCharPrefix(text: string): boolean {
+  const prefix = text.slice(0, 8);
+  if (prefix.length < 4) return false;
+  let unusual = 0;
+  for (const ch of prefix) {
+    const code = ch.codePointAt(0) ?? 0;
+    // Standard printable ASCII (space through tilde) and any ASCII letter
+    // count as "usual"; everything else — control chars, replacement
+    // chars, most box-drawing — counts against.
+    if (code >= 0x20 && code < 0x7f) continue;
+    unusual += 1;
+  }
+  return unusual / prefix.length > 0.3;
+}
+
+export function looksLikeTranscriptNoise(text: string): boolean {
+  if (CONTROL_MARKER_RE.test(text)) return true;
+  if (TOOL_CALL_FRAME_RE.test(text)) return true;
+  if (UUID_CHAIN_RE.test(text)) return true;
+  if (hasControlCharPrefix(text)) return true;
+  // Pure hex / base64-ish blobs.
+  if (/^[0-9a-fA-F-]{32,}$/.test(text)) return true;
+  return false;
+}
+
 function walkStepBlob(blob: Uint8Array, kind: StepBlobKind, stepIndex: number): StepBlobText[] {
   const seen = new Set<string>();
   const out: StepBlobText[] = [];
   for (const text of iterProtobufTextFields(blob, { minLength: 16 })) {
     const normalized = text.trim();
     if (!normalized || seen.has(normalized)) continue;
-    // Reject strings that are obviously binary artefacts: pure hex,
-    // long base64, or UUID-only.
-    if (/^[0-9a-fA-F-]{32,}$/.test(normalized)) continue;
+    if (looksLikeTranscriptNoise(normalized)) continue;
     seen.add(normalized);
     out.push({ stepIndex, kind, text: normalized });
   }

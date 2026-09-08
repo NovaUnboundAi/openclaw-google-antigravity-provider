@@ -10,6 +10,7 @@ import {
   isAntigravitySessionKey,
   sessionKeyForConversation,
 } from "./session-catalog.js";
+import { looksLikeTranscriptNoise } from "./session-catalog-sources.js";
 
 function makeTempDataDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-catalog-test-"));
@@ -111,6 +112,59 @@ describe("session key helpers", () => {
   });
 });
 
+describe("looksLikeTranscriptNoise", () => {
+  it("rejects openclaw internal control markers leaked from proto blobs", () => {
+    expect(looksLikeTranscriptNoise("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>")).toBe(true);
+    expect(looksLikeTranscriptNoise("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")).toBe(true);
+  });
+
+  it("rejects bare tool-call frames the walker mistakes for text", () => {
+    // These are protobuf-encoded tool_call names surfacing as text — they're
+    // not what the user or model said, they're framing noise.
+    expect(looksLikeTranscriptNoise("command()")).toBe(true);
+    expect(looksLikeTranscriptNoise("execute_url(https://example.com)")).toBe(true);
+    expect(looksLikeTranscriptNoise("escalate_admin(*)")).toBe(true);
+    expect(looksLikeTranscriptNoise("mcp()")).toBe(true);
+  });
+
+  it("rejects bare UUID chains that leak from step metadata", () => {
+    expect(
+      looksLikeTranscriptNoise("78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f"),
+    ).toBe(true);
+    expect(
+      looksLikeTranscriptNoise("$78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f"),
+    ).toBe(true);
+  });
+
+  it("rejects strings that start with a run of control/replacement chars", () => {
+    // Simulates a protobuf field where the varint prefix leaked into the
+    // decoded string.
+    expect(looksLikeTranscriptNoise("\x01\x02\x03\x04actual text here")).toBe(true);
+  });
+
+  it("rejects long pure-hex blobs", () => {
+    expect(
+      looksLikeTranscriptNoise("deadbeefcafebabe0123456789abcdef"),
+    ).toBe(true);
+  });
+
+  it("keeps real prose so genuine transcript text survives", () => {
+    expect(
+      looksLikeTranscriptNoise("Please summarize this repo carefully."),
+    ).toBe(false);
+    expect(
+      looksLikeTranscriptNoise("Here is a code snippet: `foo(bar)`"),
+    ).toBe(false);
+    // Single UUID inside a sentence is fine — the guard only rejects the
+    // whole-string case.
+    expect(
+      looksLikeTranscriptNoise(
+        "See conversation 78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f for details.",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("SessionCatalogProvider list()", () => {
   let dataDir = "";
   beforeEach(() => {
@@ -126,6 +180,30 @@ describe("SessionCatalogProvider list()", () => {
     expect(hosts).toHaveLength(1);
     expect(hosts[0]?.hostId).toBe("google-antigravity-cli-local");
     expect(hosts[0]?.sessions).toEqual([]);
+  });
+
+  it("drops go zero-value timestamps (0001-01-01) so the UI doesn't render '30965y ago'", async () => {
+    // agy writes `0001-01-01 00:00:00+00:00` for last_user_input_time on
+    // conversations without recorded user input. Left unfiltered, it parses
+    // to a year-1-AD ms value that breaks the sidebar's `now - createdAt`
+    // display.
+    seedSummariesDb(dataDir, [
+      {
+        conversationId: "zero-time",
+        title: "Bootstrap probe",
+        lastModified: "2026-09-04T10:00:00Z",
+        lastUserInput: "0001-01-01 00:00:00+00:00",
+      },
+    ]);
+    const provider = buildAntigravitySessionCatalog({ dataDir });
+    const hosts = await provider.list({});
+    const session = hosts[0]?.sessions[0];
+    expect(session?.threadId).toBe("zero-time");
+    // Fell back to last_modified_time instead of the zero-value input time.
+    expect(session?.createdAt).toBe(Date.parse("2026-09-04T10:00:00Z"));
+    expect(session?.updatedAt).toBe(Date.parse("2026-09-04T10:00:00Z"));
+    // Never in negative epoch territory.
+    expect(session?.createdAt ?? 0).toBeGreaterThan(Date.UTC(2000, 0, 1));
   });
 
   it("surfaces conversations sorted by most-recent modification", async () => {
