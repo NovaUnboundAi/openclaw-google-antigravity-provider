@@ -119,27 +119,39 @@ describe("looksLikeTranscriptNoise", () => {
   });
 
   it("rejects bare tool-call frames the walker mistakes for text", () => {
-    // These are protobuf-encoded tool_call names surfacing as text — they're
-    // not what the user or model said, they're framing noise.
     expect(looksLikeTranscriptNoise("command()")).toBe(true);
     expect(looksLikeTranscriptNoise("execute_url(https://example.com)")).toBe(true);
     expect(looksLikeTranscriptNoise("escalate_admin(*)")).toBe(true);
     expect(looksLikeTranscriptNoise("mcp()")).toBe(true);
   });
 
-  it("rejects bare UUID chains that leak from step metadata", () => {
+  it("rejects agy hook and prompt-component identifiers", () => {
+    // These leak from step metadata as bare snake_case tokens.
+    expect(looksLikeTranscriptNoise("idle_subagent_guard")).toBe(true);
+    expect(looksLikeTranscriptNoise("request_artifact_feedback_stop")).toBe(true);
+    expect(looksLikeTranscriptNoise("conversation_transcript")).toBe(true);
+    expect(looksLikeTranscriptNoise("user_information")).toBe(true);
+    expect(looksLikeTranscriptNoise("terminal_sandbox")).toBe(true);
+  });
+
+  it("rejects bot ids, uuid chains and negative int64 ids", () => {
+    expect(
+      looksLikeTranscriptNoise("bot-f799263c-26c4-42db-9bef-b0c26389e17f"),
+    ).toBe(true);
     expect(
       looksLikeTranscriptNoise("78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f"),
     ).toBe(true);
     expect(
       looksLikeTranscriptNoise("$78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f"),
     ).toBe(true);
+    expect(looksLikeTranscriptNoise("-3750763034362895579")).toBe(true);
   });
 
-  it("rejects strings that start with a run of control/replacement chars", () => {
-    // Simulates a protobuf field where the varint prefix leaked into the
-    // decoded string.
-    expect(looksLikeTranscriptNoise("\x01\x02\x03\x04actual text here")).toBe(true);
+  it("rejects bare filesystem paths that leak from workspace metadata", () => {
+    expect(
+      looksLikeTranscriptNoise("/Users/christopher/.gemini/antigravity-cli/skills"),
+    ).toBe(true);
+    expect(looksLikeTranscriptNoise("/tmp/workspace")).toBe(true);
   });
 
   it("rejects long pure-hex blobs", () => {
@@ -148,18 +160,36 @@ describe("looksLikeTranscriptNoise", () => {
     ).toBe(true);
   });
 
+  it("rejects strings without any spaces (base64 tokens, packed protos)", () => {
+    // Real dialog has spaces. Everything else the walker surfaces doesn't.
+    expect(looksLikeTranscriptNoise("vX-gaof4Icqc3boPnLyXwQo")).toBe(true);
+    expect(
+      looksLikeTranscriptNoise(
+        "$4fade6a6-30b1-4a68-8be2-69c066c80135\"$a45ba7aa-a1a4-4c11-9e11-d00fdfd3cb6a",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps real prose so genuine transcript text survives", () => {
+    expect(
+      looksLikeTranscriptNoise("Hello! How can I help you today?"),
+    ).toBe(false);
     expect(
       looksLikeTranscriptNoise("Please summarize this repo carefully."),
     ).toBe(false);
     expect(
       looksLikeTranscriptNoise("Here is a code snippet: `foo(bar)`"),
     ).toBe(false);
-    // Single UUID inside a sentence is fine — the guard only rejects the
-    // whole-string case.
+    // A single UUID inside a real sentence is fine.
     expect(
       looksLikeTranscriptNoise(
         "See conversation 78021a83-6f38-4d2f-9d5c-1a2b3c4d5e6f for details.",
+      ),
+    ).toBe(false);
+    // System notices ship as bracketed prose.
+    expect(
+      looksLikeTranscriptNoise(
+        "[Notice] All your subagents and background tasks have been stopped.",
       ),
     ).toBe(false);
   });

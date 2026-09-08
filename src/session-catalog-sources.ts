@@ -195,56 +195,73 @@ export type StepBlobText = {
   readonly text: string;
 };
 
-// Reject transcript strings that the schemaless protobuf walker surfaces
-// but that a reader would recognize as agy internals rather than dialog:
-// tool-call frames, control markers, UUID chains, and empty-ish glyphs
-// left behind when a payload starts with binary bytes the walker skipped.
-// This is a heuristic — a rare user message that happens to be exactly
-// `command()` or a bare UUID string won't survive — but the earlier
-// permissive filter surfaced too much protocol noise to be useful.
+// The schemaless protobuf walker surfaces every text-like field in a
+// step blob — including field tags, tool/hook names, bot ids, UUIDs and
+// filesystem paths that the sidebar would show as garbage. Real transcript
+// text ("Hello! How can I help you today?", "[Notice] All your subagents
+// have been stopped …") always contains a space between words; the noise
+// almost never does. Use "has a space between letters" as the primary
+// positive signal, with pattern-based rejects for the remaining cases.
 const CONTROL_MARKER_RE = /<<<[A-Z_]+>>>/;
 const TOOL_CALL_FRAME_RE = /^[a-z][a-z0-9_]*\([^)]{0,60}\)$/;
+const SNAKE_CASE_IDENT_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+const BOT_ID_RE = /^bot-[0-9a-f-]{16,}$/i;
 const UUID_CHAIN_RE = /^[$"\s]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}([$"\s]+[0-9a-fA-F-]{8,})*[$"\s]*$/;
-// The first bytes of a payload sometimes decode to length prefixes or
-// varints that render as replacement chars / box-drawing glyphs. Reject a
-// string whose leading run is >30% non-alphanumeric — real prose starts
-// with a letter or a punctuation mark, not with a run of glyphs.
-function hasControlCharPrefix(text: string): boolean {
-  const prefix = text.slice(0, 8);
-  if (prefix.length < 4) return false;
-  let unusual = 0;
-  for (const ch of prefix) {
-    const code = ch.codePointAt(0) ?? 0;
-    // Standard printable ASCII (space through tilde) and any ASCII letter
-    // count as "usual"; everything else — control chars, replacement
-    // chars, most box-drawing — counts against.
-    if (code >= 0x20 && code < 0x7f) continue;
-    unusual += 1;
+
+// Strip leading protobuf tag / length bytes that the walker leaked into the
+// decoded string — they render as control glyphs in the UI and defeat
+// deduplication (`\x12\x0euser_information` ≠ `user_information`).
+function stripBinaryPrefix(text: string): string {
+  let i = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    // Keep normal whitespace; drop anything else below the printable range.
+    if (code === 0x09 || code === 0x0a || code === 0x0d) break;
+    if (code >= 0x20) break;
+    i += 1;
   }
-  return unusual / prefix.length > 0.3;
+  return i > 0 ? text.slice(i) : text;
 }
 
+// Reject the specific string shapes the walker surfaces that a reader
+// would recognize as agy internals rather than dialog.
 export function looksLikeTranscriptNoise(text: string): boolean {
   if (CONTROL_MARKER_RE.test(text)) return true;
   if (TOOL_CALL_FRAME_RE.test(text)) return true;
+  if (SNAKE_CASE_IDENT_RE.test(text)) return true;
+  if (BOT_ID_RE.test(text)) return true;
   if (UUID_CHAIN_RE.test(text)) return true;
-  if (hasControlCharPrefix(text)) return true;
-  // Pure hex / base64-ish blobs.
+  // Pure hex / base64-ish blobs, negative int64 ids, path-only entries.
   if (/^[0-9a-fA-F-]{32,}$/.test(text)) return true;
+  if (/^-?\d{10,}$/.test(text)) return true;
+  if (/^\/[A-Za-z_.-][^\s]*$/.test(text)) return true;
+  // Any embedded control byte (outside tab/newline/CR) means the walker
+  // picked up a proto tag or length prefix inside a real string.
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) return true;
+  // Real dialog always has a space between two letters somewhere. Base64
+  // tokens, identifiers, packed proto fields and paths never do.
+  if (!/[A-Za-z][^\S\n\r]+[A-Za-z]/.test(text)) return true;
   return false;
 }
 
 function walkStepBlob(blob: Uint8Array, kind: StepBlobKind, stepIndex: number): StepBlobText[] {
-  const seen = new Set<string>();
-  const out: StepBlobText[] = [];
+  const candidates = new Set<string>();
   for (const text of iterProtobufTextFields(blob, { minLength: 16 })) {
-    const normalized = text.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    if (looksLikeTranscriptNoise(normalized)) continue;
-    seen.add(normalized);
-    out.push({ stepIndex, kind, text: normalized });
+    const cleaned = stripBinaryPrefix(text).trim();
+    if (!cleaned) continue;
+    if (looksLikeTranscriptNoise(cleaned)) continue;
+    candidates.add(cleaned);
   }
-  return out;
+  // Prefer the shortest clean form: if `X` contains a shorter `Y` we already
+  // kept, drop `X` — it's the same content plus a leaked proto tag or id
+  // suffix. Iterating shortest-first keeps `Y` and evicts the wrappers.
+  const sorted = Array.from(candidates).sort((a, b) => a.length - b.length);
+  const kept: string[] = [];
+  for (const s of sorted) {
+    if (kept.some((k) => s.includes(k))) continue;
+    kept.push(s);
+  }
+  return kept.map((text) => ({ stepIndex, kind, text }));
 }
 
 // Best-effort transcript reconstruction. Combines the user prompts from
