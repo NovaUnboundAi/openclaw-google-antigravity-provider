@@ -59,10 +59,26 @@ describe("buildGoogleAntigravityProvider", () => {
     expect(gpt).toEqual(expect.objectContaining({ contextWindow: 128_000 }));
   });
 
-  it("accepts any non-empty model ref as modern", () => {
+  it("accepts real agy ids and rejects wildcard/globby routing keys", () => {
     const provider = buildGoogleAntigravityProvider();
     expect(provider.isModernModelRef?.({ modelId: "gemini-3.8-flash-high" } as any)).toBe(true);
     expect(provider.isModernModelRef?.({ modelId: "" } as any)).toBe(false);
+    // Openclaw's `agents.defaults.models` routing wildcards get enumerated
+    // as candidate model refs; the picker asks the provider about each key.
+    // Accepting `*` (or `provider/*`) would materialise a synthetic model
+    // row named `*` in the /models picker.
+    expect(provider.isModernModelRef?.({ modelId: "*" } as any)).toBe(false);
+    expect(provider.isModernModelRef?.({ modelId: "google-antigravity-cli/*" } as any)).toBe(false);
+    expect(provider.isModernModelRef?.({ modelId: "gemini/*" } as any)).toBe(false);
+  });
+
+  it("returns undefined from resolveDynamicModel for non-routable ids", () => {
+    const provider = buildGoogleAntigravityProvider();
+    expect(provider.resolveDynamicModel?.({ modelId: "*" } as any)).toBeUndefined();
+    expect(provider.resolveDynamicModel?.({ modelId: "" } as any)).toBeUndefined();
+    expect(
+      provider.resolveDynamicModel?.({ modelId: "google-antigravity-cli/*" } as any),
+    ).toBeUndefined();
   });
 });
 

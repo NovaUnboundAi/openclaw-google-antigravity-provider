@@ -44,6 +44,24 @@ export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 // on demand via `getLiveAntigravityModels()`.
 export const MODEL_DEFINITIONS: readonly AntigravityModel[] = STATIC_MODEL_FALLBACK;
 
+// True when `modelId` is something agy could actually accept as `--model`.
+// Openclaw's picker enumerates `agents.defaults.models` keys and asks the
+// provider to resolve each one; without this guard the wildcard routing key
+// `google-antigravity-cli/*` gets materialised into a synthetic "*" model
+// row (name `*`, 200K context from the fallback branch of
+// deriveContextWindow). agy would reject `--model *` at spawn time anyway,
+// so filtering here just hides a picker artefact.
+export function isRoutableAgyModelId(modelId: unknown): boolean {
+  if (typeof modelId !== "string") return false;
+  const trimmed = modelId.trim();
+  if (trimmed.length === 0) return false;
+  // Wildcard routing keys ("*", "provider/*") and any embedded slash are
+  // not valid agy model IDs. Every currently exposed agy model is a plain
+  // lowercase dash-separated slug.
+  if (trimmed.includes("*") || trimmed.includes("/")) return false;
+  return true;
+}
+
 function buildRuntimeModel(providerId: string, modelId: string): ProviderRuntimeModel {
   const meta = deriveModelMetadata(modelId);
   return {
@@ -217,11 +235,12 @@ export function buildGoogleAntigravityProvider(
       };
     },
     resolveDynamicModel: ({ modelId }: { modelId: string }) =>
-      buildRuntimeModel(providerId, modelId),
-    // Any well-formed ID is routable — the plugin forwards it verbatim to
-    // `agy --model`. OpenClaw's own catalog gates which IDs are selectable.
-    isModernModelRef: ({ modelId }: { modelId: string }) =>
-      typeof modelId === "string" && modelId.length > 0,
+      isRoutableAgyModelId(modelId) ? buildRuntimeModel(providerId, modelId) : undefined,
+    // Any well-formed model id is routable — the plugin forwards it verbatim
+    // to `agy --model`. Reject wildcard/globby ids so an openclaw routing key
+    // like `google-antigravity-cli/*` in `agents.defaults.models` cannot be
+    // materialised into a fake "*" model row in the picker.
+    isModernModelRef: ({ modelId }: { modelId: string }) => isRoutableAgyModelId(modelId),
   };
 }
 
