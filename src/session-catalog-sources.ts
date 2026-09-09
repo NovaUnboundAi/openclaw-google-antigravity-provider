@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { iterProtobufTextFields } from "./session-catalog-protobuf.js";
+import { decodeStepPayload } from "./session-catalog-decoder.js";
 
 export type AntigravityConversationSummary = {
   readonly conversationId: string;
@@ -18,12 +19,13 @@ export type AntigravityConversationSummary = {
   readonly killed: boolean;
 };
 
+// Matches openclaw's SessionCatalogTranscriptItem.type union so the mapper
+// in session-catalog.ts can pass `kind` straight through as `type`.
 export type AntigravityTranscriptItem = {
-  readonly kind: "userMessage" | "agentMessage" | "toolCall" | "other";
+  readonly kind: "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "toolResult" | "other";
   readonly text: string;
   readonly timestampMs?: number;
   readonly stepIndex?: number;
-  readonly toolName?: string;
 };
 
 // Rows agy has never touched for a given field carry Go's zero-value time
@@ -264,6 +266,41 @@ function walkStepBlob(blob: Uint8Array, kind: StepBlobKind, stepIndex: number): 
   return kept.map((text) => ({ stepIndex, kind, text }));
 }
 
+// Compact display for a decoded tool call. Codex/claude sidebars render
+// tool calls as `name(args)` on one line with the human-readable summary
+// underneath; keep the same shape so the agy transcript sits next to
+// theirs without visual drift.
+function formatToolCallText(name: string, args?: string, summary?: string): string {
+  const argPreview = summarizeArgs(args);
+  const head = argPreview ? `${name}(${argPreview})` : `${name}()`;
+  return summary && summary !== name ? `${head}\n${summary}` : head;
+}
+
+function summarizeArgs(raw?: string): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  // agy's args field is JSON in practice. Prefer the "main" argument
+  // (CommandLine / TargetFile / AbsolutePath / DirectoryPath / Query).
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      for (const key of [
+        "CommandLine", "TargetFile", "AbsolutePath", "DirectoryPath",
+        "Query", "Url", "url", "path", "file",
+      ]) {
+        const v = (parsed as Record<string, unknown>)[key];
+        if (typeof v === "string" && v.length > 0) {
+          return v.length > 80 ? `${v.slice(0, 77)}...` : v;
+        }
+      }
+    }
+  } catch {
+    // fall through — non-JSON args (a raw shell command, for instance)
+  }
+  return trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed;
+}
+
 // Best-effort transcript reconstruction. Combines the user prompts from
 // history.jsonl with the schemaless protobuf text extraction of the
 // conversation's step BLOBs, ordered by step index. Returned items are
@@ -282,7 +319,8 @@ export async function readAntigravityConversationTranscript(params: {
     (row) => row.conversationId === conversationId,
   );
 
-  const stepItems: AntigravityTranscriptItem[] = [];
+  const merged: AntigravityTranscriptItem[] = [];
+  let sawDecodedUser = false;
   if (fs.existsSync(dbPath)) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -300,6 +338,36 @@ export async function readAntigravityConversationTranscript(params: {
         const payload = row.step_payload instanceof Uint8Array ? row.step_payload : undefined;
         const render = row.render_info instanceof Uint8Array ? row.render_info : undefined;
         const meta = row.metadata instanceof Uint8Array ? row.metadata : undefined;
+
+        // Prefer the structured decoder — it knows agy's cortex_pb field
+        // numbers for user turns, agent turns, tool calls and system
+        // notices, so it emits clean typed items instead of raw strings.
+        const decoded = payload ? decodeStepPayload(payload, idx) : undefined;
+        if (decoded) {
+          if (decoded.kind === "userMessage") {
+            merged.push({ kind: "userMessage", text: decoded.text, stepIndex: idx });
+            sawDecodedUser = true;
+          } else if (decoded.kind === "agentMessage") {
+            merged.push({ kind: "agentMessage", text: decoded.text, stepIndex: idx });
+          } else if (decoded.kind === "toolCall") {
+            merged.push({
+              kind: "toolCall",
+              text: formatToolCallText(decoded.toolName, decoded.args, decoded.summary),
+              stepIndex: idx,
+            });
+            if (decoded.output) {
+              merged.push({ kind: "toolResult", text: decoded.output, stepIndex: idx });
+            }
+          } else if (decoded.kind === "systemNotice") {
+            const prefix = decoded.summary ? `${decoded.summary}\n\n` : "";
+            merged.push({ kind: "other", text: prefix + decoded.text, stepIndex: idx });
+          }
+          // decoded.kind === "empty" → consumed but silent; do NOT walk.
+          continue;
+        }
+
+        // Unknown step_type — surface any prose the schemaless walker
+        // finds so exotic step kinds still show *something*.
         for (const source of [
           { blob: payload, kind: "step_payload" as const },
           { blob: render, kind: "render_info" as const },
@@ -307,11 +375,7 @@ export async function readAntigravityConversationTranscript(params: {
         ]) {
           if (!source.blob) continue;
           for (const item of walkStepBlob(source.blob, source.kind, idx)) {
-            stepItems.push({
-              kind: guessKindFromText(item.text, item.kind),
-              text: item.text,
-              stepIndex: item.stepIndex,
-            });
+            merged.push({ kind: "other", text: item.text, stepIndex: idx });
           }
         }
       }
@@ -320,56 +384,22 @@ export async function readAntigravityConversationTranscript(params: {
     }
   }
 
-  const merged: AntigravityTranscriptItem[] = [];
-  let promptCursor = 0;
-  const promptsSorted = userPrompts
-    .slice()
-    .sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0));
-
-  // Interleave prompts with step-extracted text by step index. We don't
-  // know which step a prompt belongs to, so distribute prompts evenly
-  // across the step range, oldest first.
-  const stepIndexes = [...new Set(stepItems.map((item) => item.stepIndex ?? 0))].sort(
-    (a, b) => a - b,
-  );
-  const promptsPerBucket = Math.max(1, Math.ceil(promptsSorted.length / Math.max(stepIndexes.length, 1)));
-
-  for (const idx of stepIndexes) {
-    for (let i = 0; i < promptsPerBucket && promptCursor < promptsSorted.length; i++) {
-      const prompt = promptsSorted[promptCursor];
-      promptCursor += 1;
-      if (!prompt) break;
-      merged.push({
-        kind: "userMessage",
-        text: prompt.text,
-        timestampMs: prompt.timestampMs,
-        stepIndex: idx,
-      });
-    }
-    for (const item of stepItems.filter((v) => v.stepIndex === idx)) {
-      merged.push(item);
-    }
-  }
-  // Any remaining prompts (rare): append at the end.
-  while (promptCursor < promptsSorted.length) {
-    const prompt = promptsSorted[promptCursor];
-    promptCursor += 1;
-    if (!prompt) break;
-    merged.push({
+  // history.jsonl carries the clean user prompt with a timestamp. Only fall
+  // back to it when the structured decoder didn't already yield user turns
+  // (e.g., corrupted db or a conversation from an older agy version).
+  // Prepended in oldest-first order so the transcript still reads
+  // chronologically.
+  if (!sawDecodedUser) {
+    const promptsSorted = userPrompts
+      .slice()
+      .sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0));
+    const historyItems: AntigravityTranscriptItem[] = promptsSorted.map((p) => ({
       kind: "userMessage",
-      text: prompt.text,
-      timestampMs: prompt.timestampMs,
-    });
+      text: p.text,
+      ...(p.timestampMs !== undefined ? { timestampMs: p.timestampMs } : {}),
+    }));
+    merged.unshift(...historyItems);
   }
 
   return typeof limit === "number" ? merged.slice(0, limit) : merged;
-}
-
-function guessKindFromText(text: string, blobKind: StepBlobKind): AntigravityTranscriptItem["kind"] {
-  if (blobKind === "metadata") return "other";
-  // Rough heuristics: JSON-shaped payloads are tool call args; long prose is
-  // likely assistant output.
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "toolCall";
-  return "agentMessage";
 }

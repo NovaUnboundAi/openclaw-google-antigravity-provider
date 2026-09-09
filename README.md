@@ -552,7 +552,7 @@ three actions:
 | Verb | What it does |
 | --- | --- |
 | **List** | Reads `~/.gemini/antigravity-cli/conversation_summaries.db` and returns one row per conversation with title, preview, last-touched time, and the primary workspace `cwd`. Sorted newest-first. |
-| **Read** | Rebuilds a transcript for the highlighted conversation. User prompts are lifted verbatim from `~/.gemini/antigravity-cli/history.jsonl` (filtered by `conversationId`); assistant and tool text is walked out of the per-conversation `steps.step_payload / render_info / metadata` protobuf BLOBs with a schemaless field scanner (no `.proto` schema is published, so extraction is best-effort — see [Known limits](#known-limits) below). |
+| **Read** | Rebuilds a transcript for the highlighted conversation. The plugin ships a **structured decoder** (`src/session-catalog-decoder.ts`) that reads agy's per-conversation `steps.step_payload` protobuf blobs directly, emitting typed `userMessage` / `agentMessage` / `toolCall` / `toolResult` / `other` items — same shape codex and claude CLI plugins use, so the transcript renders side-by-side without visual drift. Step types outside the known set fall through to a schemaless walker so nothing is silently dropped. Google does not publish agy's `.proto` files; the field map was reversed from real conversation blobs — see [`docs/AGY_STEP_SCHEMA.md`](docs/AGY_STEP_SCHEMA.md) for the methodology and the field table. |
 | **Continue** | Binds the OpenClaw session to that conversation id and resumes it via the existing CLI backend — same `agy --conversation <id>` path used by every other turn. |
 | **Copy to new session** | Streams the same transcript into a fresh Gateway-owned session so you can keep an agy-started thread going in *any* model available in OpenClaw's catalog. Bundled `beam` is the only other plugin that ships this hook today. |
 
@@ -565,12 +565,17 @@ are pulled in.
 
 Known limits:
 
-- Transcript extraction from the step BLOBs is schemaless, so it recovers user
-  prompts and long assistant prose well but drops timing metadata and
-  occasionally surfaces UUIDs or path fragments as their own items. If Google
-  ever publishes the `.proto` schema, or if the community reverse-engineers
-  the specific field numbers used in `steps.step_payload`, this becomes a
-  faithful transcript.
+- The structured decoder covers `step_type` in {5, 7, 8, 9, 14, 15, 17, 21, 23,
+  98, 101, 132} — enough for the everyday user/agent/tool-call flow. Rows with
+  an unknown `step_type` still render, but they fall back to a heuristic text
+  extractor that may occasionally surface a path or JSON blob as its own item.
+  Adding a new tool is a ~20-line change in
+  [`session-catalog-decoder.ts`](src/session-catalog-decoder.ts) —
+  [`docs/AGY_STEP_SCHEMA.md`](docs/AGY_STEP_SCHEMA.md) documents how to
+  identify the field numbers.
+- Timestamps on decoded rows aren't surfaced yet (agy stores them under
+  `#5.#1.{#1 seconds, #2 nanos}` — trivial to wire in when the sidebar needs
+  it).
 - The `list` output is refreshed on every sidebar poll and is not cached; on a
   home directory with thousands of conversations this may add a few tens of
   milliseconds per refresh.
