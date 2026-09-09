@@ -383,6 +383,49 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
   name: "Google Antigravity CLI Provider",
   description: "Persistent agent turns through a local Google Antigravity agy CLI",
   register(api: OpenClawPluginApi) {
+    // Hot-reload on config edits — matches the codex/team-reports pattern.
+    // Every key under our config affects backend behavior (permission mode,
+    // MCP bridge state, resume guard, session-catalog visibility), so
+    // restart on any change under the prefix and let openclaw's reload
+    // machinery re-run register() with the new snapshot.
+    safeRegister("reload", () => {
+      if (typeof (api as { registerReload?: unknown }).registerReload !== "function") return;
+      (api as {
+        registerReload: (opts: { restartPrefixes: string[] }) => void;
+      }).registerReload({
+        restartPrefixes: [`plugins.entries.${GOOGLE_ANTIGRAVITY_PROVIDER_ID}.config`],
+      });
+    });
+    // Auto-enable the plugin when the user has configured a
+    // `google-antigravity-cli` model provider — same UX the google /
+    // openai / xai plugins ship. Declaratively hinted via manifest
+    // `autoEnableWhenConfiguredProviders`; the probe adds a defense-
+    // in-depth check that at least one model row is populated so a
+    // half-written config doesn't flip the plugin on.
+    safeRegister("auto-enable-probe", () => {
+      if (
+        typeof (api as { registerAutoEnableProbe?: unknown }).registerAutoEnableProbe !==
+        "function"
+      )
+        return;
+      (api as {
+        registerAutoEnableProbe: (
+          probe: (input: { config: Record<string, unknown> }) => string | null,
+        ) => void;
+      }).registerAutoEnableProbe(({ config }) => {
+        const providers =
+          ((config?.models as Record<string, unknown> | undefined)?.providers as
+            | Record<string, unknown>
+            | undefined) ?? undefined;
+        const provider = providers?.[GOOGLE_ANTIGRAVITY_PROVIDER_ID] as
+          | { models?: unknown[] }
+          | undefined;
+        if (provider && Array.isArray(provider.models) && provider.models.length > 0) {
+          return `google-antigravity-cli provider configured with ${provider.models.length} model(s)`;
+        }
+        return null;
+      });
+    });
     safeRegister("provider", () =>
       api.registerProvider(buildGoogleAntigravityProvider("google-antigravity-cli")),
     );

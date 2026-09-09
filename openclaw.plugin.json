@@ -13,6 +13,9 @@
   "cliBackends": [
     "google-antigravity-cli"
   ],
+  "autoEnableWhenConfiguredProviders": [
+    "google-antigravity-cli"
+  ],
   "syntheticAuthRefs": [
     "google-antigravity-cli"
   ],
