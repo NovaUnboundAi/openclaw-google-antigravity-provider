@@ -406,5 +406,13 @@ export async function readAntigravityConversationTranscript(params: {
     merged.unshift(...historyItems);
   }
 
+  // openclaw's sidebar displays items[0] at the bottom (its own render
+  // path renders the array top-down, but the scroll frame flips visually
+  // so the last item ends up at the top of the pane). Handing it a
+  // chronological array shows oldest-at-bottom / latest-at-top which
+  // reads inverted; reverse to newest-first so the pane matches the
+  // standard chat convention (oldest at top, latest at bottom). If a
+  // `limit` is set, keep the most-recent N.
+  merged.reverse();
   return typeof limit === "number" ? merged.slice(0, limit) : merged;
 }

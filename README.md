@@ -620,6 +620,48 @@ Known limits:
   home directory with thousands of conversations this may add a few tens of
   milliseconds per refresh.
 
+## Tools & Slash Command
+
+The plugin registers three tools any agent can call, plus one slash command
+for interactive use from any chat surface (Telegram, webchat, terminal).
+
+### Tools (`api.registerTool`)
+
+| Tool | Description | Owner-only |
+| --- | --- | --- |
+| `antigravity_conversations_list` | List agy conversations, newest first, with optional `search` substring match against title / preview / id / workspace path. | no |
+| `antigravity_conversation_read` | Read a specific conversation's structured transcript (same typed items the sidebar renders — user/agent/toolCall/toolResult). | no |
+| `antigravity_reset_binding` | Force agy to start a fresh conversation next turn by renaming (backing up) its on-disk SQLite. The catch-up hook re-seeds the recent transcript so the user-visible chat continues without a break. | yes |
+
+`antigravity_reset_binding` is guarded by `senderIsOwner` — it mutates
+disk state, so untrusted agents (e.g. a sub-agent) can't invoke it.
+
+### Slash command (`/antigravity`)
+
+Available anywhere openclaw accepts slash commands.
+
+```
+/antigravity list [N]         — show the N most-recent agy conversations (default 10)
+/antigravity status <id>      — show size + step count for a conversation
+/antigravity reset <id>       — back up and drop the on-disk agy state so the next turn starts fresh
+/antigravity help             — this text
+```
+
+`reset` is the interactive counterpart to `openclaw sessions compact
+--max-lines N` when only agy's side of the context is inflated — it
+leaves the openclaw transcript untouched and only resets the CLI backing.
+
+### Manifest-declared plugin contract
+
+The manifest declares the plugin owns everything it produces so openclaw's
+lifecycle machinery doesn't have to guess:
+
+- `sessionRouteStateOwners` — provider / runtime / cli-session-key / auth-profile-prefix all namespaced under `google-antigravity-cli`.
+- `doctorContract.configRepair: true` — hook into `openclaw doctor --fix` for config normalization on upgrades.
+- `backupResources` — declares `.gemini/antigravity-cli/{cache,logs}` as regenerable so `openclaw sessions export` doesn't bundle them.
+- `contracts.tools` — the three tool ids above.
+- `cliCommands` — the `/antigravity` subcommand tree.
+
 ## Platform Notes
 
 The plugin runs on the same machine as `agy`, so paths and process limits are

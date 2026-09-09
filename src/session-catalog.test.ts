@@ -303,9 +303,13 @@ describe("SessionCatalogProvider read()", () => {
     const userTexts = result.items
       .filter((item) => item.type === "userMessage")
       .map((item) => item.text);
+    // Newest-first order — the sidebar renders items[0] such that
+    // reverse-chronological delivery lands as chronological display
+    // (latest at bottom, oldest at top). See the comment on the
+    // final reverse() in readAntigravityConversationTranscript.
     expect(userTexts).toEqual([
-      "Please summarize this repo carefully.",
       "Now add a follow-up test and rerun.",
+      "Please summarize this repo carefully.",
     ]);
   });
 });

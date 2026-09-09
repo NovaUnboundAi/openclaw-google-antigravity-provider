@@ -37,6 +37,8 @@ import {
   WorkspaceContextDeliveryTracker,
 } from "./workspace-bootstrap.js";
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
+import { antigravityToolsFactory } from "./tools.js";
+import { buildAntigravityCommand } from "./commands.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 
@@ -368,6 +370,30 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     // the CLI backend registered above.
     registerAntigravitySessionCatalog(api);
     registerAntigravityCatchUpHook(api);
+    // Custom transcript tools — any agent can call these to inspect
+    // agy state (`antigravity_conversations_list`, `_read`) or force
+    // a fresh binding (`antigravity_reset_binding`, owner-only).
+    if (typeof (api as { registerTool?: unknown }).registerTool === "function") {
+      (api as {
+        registerTool: (
+          factory: ReturnType<typeof antigravityToolsFactory>,
+          opts?: { names?: string[] },
+        ) => void;
+      }).registerTool(antigravityToolsFactory(), {
+        names: [
+          "antigravity_conversations_list",
+          "antigravity_conversation_read",
+          "antigravity_reset_binding",
+        ],
+      });
+    }
+    // /antigravity slash command — list / status / reset agy conversations
+    // without having to open a terminal.
+    if (typeof (api as { registerCommand?: unknown }).registerCommand === "function") {
+      (api as {
+        registerCommand: (cmd: ReturnType<typeof buildAntigravityCommand>) => void;
+      }).registerCommand(buildAntigravityCommand());
+    }
   },
 });
 

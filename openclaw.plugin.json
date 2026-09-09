@@ -19,6 +19,45 @@
   "nonSecretAuthMarkers": [
     "antigravity-local-session"
   ],
+  "sessionRouteStateOwners": [
+    {
+      "id": "google-antigravity-cli",
+      "label": "Google Antigravity CLI",
+      "providerIds": ["google-antigravity-cli"],
+      "runtimeIds": ["google-antigravity-cli"],
+      "cliSessionKeys": ["google-antigravity-cli"],
+      "authProfilePrefixes": ["google-antigravity-cli:"]
+    }
+  ],
+  "doctorContract": {
+    "configRepair": true
+  },
+  "contracts": {
+    "tools": [
+      "antigravity_conversations_list",
+      "antigravity_conversation_read",
+      "antigravity_reset_binding"
+    ]
+  },
+  "cliCommands": [
+    {
+      "name": "antigravity",
+      "description": "Inspect and reset local agy conversation state (list / status / reset)",
+      "hasSubcommands": true
+    }
+  ],
+  "backupResources": [
+    {
+      "disposition": "regenerable",
+      "scope": "agent",
+      "relativePath": ".gemini/antigravity-cli/cache"
+    },
+    {
+      "disposition": "regenerable",
+      "scope": "agent",
+      "relativePath": ".gemini/antigravity-cli/logs"
+    }
+  ],
   "modelIdNormalization": {
     "providers": {
       "google-antigravity-cli": {
@@ -161,6 +200,14 @@
       "userDataDir": {
         "type": "string",
         "description": "Custom Antigravity data directory (default: ~/.gemini/antigravity-cli)"
+      },
+      "maxResumeDbBytes": {
+        "oneOf": [
+          { "type": "integer", "minimum": 0 },
+          { "type": "boolean", "const": false }
+        ],
+        "default": 2000000,
+        "description": "Cap on the SQLite size (bytes) of an agy conversation the plugin will --conversation-resume. Above the cap, --conversation <id> is dropped so agy starts a fresh conversation and the catch-up hook re-seeds recent turns. Set to false to disable the guard and always resume regardless of size."
       }
     }
   }
