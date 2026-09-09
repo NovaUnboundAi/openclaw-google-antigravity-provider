@@ -293,24 +293,31 @@ export function registerAntigravityCatchUpHook(
 
   const tracker = new WorkspaceContextDeliveryTracker();
 
+  // Narrow the openclaw hook payload shape at the boundary. The SDK's
+  // BeforePromptBuild types aren't re-exported from `plugin-entry`; using
+  // structural checks here avoids taking a hard dependency on an internal
+  // subpath that could rename between releases.
+  const readString = (v: unknown): string | undefined =>
+    typeof v === "string" ? v : undefined;
+  const asRecord = (v: unknown): Record<string, unknown> | undefined =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
+
   api.registerHook(
     "before_prompt_build",
-    (async (event: any, ctx: any) => {
+    (async (rawEvent: unknown, rawCtx: unknown) => {
+      const event = asRecord(rawEvent) ?? {};
+      const ctx = asRecord(rawCtx) ?? {};
       // Only our own turns: another provider's turn needs no agy catch-up.
-      if (
-        typeof ctx?.modelProviderId !== "string" ||
-        ctx.modelProviderId.trim().toLowerCase() !== providerId
-      ) {
-        return;
-      }
+      const eventProvider = readString(ctx.modelProviderId)?.trim().toLowerCase();
+      if (eventProvider !== providerId) return;
 
       const blocks: string[] = [];
 
       // Workspace instructions first: they frame everything that follows.
       // `ctx.workspaceDir` is resolved per run, so a multi-agent gateway gets
       // each agent's own workspace rather than a shared one.
-      const workspaceDir =
-        typeof ctx?.workspaceDir === "string" ? ctx.workspaceDir.trim() : "";
+      const workspaceDir = readString(ctx.workspaceDir)?.trim() ?? "";
+      const agentId = readString(ctx.agentId);
       if (workspaceDir) {
         try {
           const conversationId = await currentConversationId(workspaceDir);
@@ -320,11 +327,11 @@ export function registerAntigravityCatchUpHook(
           const fingerprint = workspaceBootstrapFingerprint(files);
           if (
             files.length > 0 &&
-            tracker.shouldSend(ctx?.agentId, workspaceDir, conversationId, fingerprint)
+            tracker.shouldSend(agentId, workspaceDir, conversationId, fingerprint)
           ) {
             const block = buildWorkspaceContextBlock({
               workspaceDir,
-              agentId: typeof ctx?.agentId === "string" ? ctx.agentId : undefined,
+              agentId,
               files,
               maxChars: defaultWorkspaceContextMaxChars(),
             });
@@ -336,10 +343,11 @@ export function registerAntigravityCatchUpHook(
         }
       }
 
+      const messages = Array.isArray(event.messages) ? event.messages : [];
       const catchUp = buildCrossProviderCatchUp({
-        messages: Array.isArray(event?.messages) ? event.messages : [],
+        messages,
         providerId,
-        currentPrompt: typeof event?.prompt === "string" ? event.prompt : undefined,
+        currentPrompt: readString(event.prompt),
         maxChars: defaultCatchUpMaxChars(),
       });
       if (catchUp) blocks.push(catchUp);
@@ -352,29 +360,54 @@ export function registerAntigravityCatchUpHook(
   );
 }
 
+// Wrap each `api.register*` block so one failing registration can't take
+// the rest of the plugin down. This is the same guard codex uses for its
+// conversation-binding hooks — a broken tool factory now degrades to
+// "that specific surface is missing" instead of "the whole provider is
+// offline" (the class of failure the typebox regression exhibited).
+function safeRegister(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[google-antigravity-cli] ${label} failed to register: ${
+        (error as Error).message
+      }`,
+    );
+  }
+}
+
 const plugin: OpenClawPluginDefinition = definePluginEntry({
   id: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   name: "Google Antigravity CLI Provider",
   description: "Persistent agent turns through a local Google Antigravity agy CLI",
   register(api: OpenClawPluginApi) {
-    api.registerProvider(buildGoogleAntigravityProvider("google-antigravity-cli"));
-    api.registerCliBackend(buildGoogleAntigravityCliBackend("google-antigravity-cli"));
-    api.registerModelCatalogProvider({
-      provider: "google-antigravity-cli",
-      kinds: ["text"],
-      staticCatalog: () =>
-        buildModelCatalogRows("google-antigravity-cli", "static", STATIC_MODEL_FALLBACK),
-      liveCatalog: listGoogleAntigravityCatalog,
-    });
+    safeRegister("provider", () =>
+      api.registerProvider(buildGoogleAntigravityProvider("google-antigravity-cli")),
+    );
+    safeRegister("cli-backend", () =>
+      api.registerCliBackend(buildGoogleAntigravityCliBackend("google-antigravity-cli")),
+    );
+    safeRegister("model-catalog", () =>
+      api.registerModelCatalogProvider({
+        provider: "google-antigravity-cli",
+        kinds: ["text"],
+        staticCatalog: () =>
+          buildModelCatalogRows("google-antigravity-cli", "static", STATIC_MODEL_FALLBACK),
+        liveCatalog: listGoogleAntigravityCatalog,
+      }),
+    );
     // Surfaces existing agy conversations (read-only) in the OpenClaw
     // sidebar. Continues resume via `agy --conversation <id>` through
     // the CLI backend registered above.
-    registerAntigravitySessionCatalog(api);
-    registerAntigravityCatchUpHook(api);
+    safeRegister("session-catalog", () => registerAntigravitySessionCatalog(api));
+    safeRegister("catch-up-hook", () => registerAntigravityCatchUpHook(api));
     // Custom transcript tools — any agent can call these to inspect
     // agy state (`antigravity_conversations_list`, `_read`) or force
     // a fresh binding (`antigravity_reset_binding`, owner-only).
-    if (typeof (api as { registerTool?: unknown }).registerTool === "function") {
+    safeRegister("transcript-tools", () => {
+      if (typeof (api as { registerTool?: unknown }).registerTool !== "function") return;
       (api as {
         registerTool: (
           factory: ReturnType<typeof antigravityToolsFactory>,
@@ -387,22 +420,25 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
           "antigravity_reset_binding",
         ],
       });
-    }
+    });
     // /antigravity slash command — list / status / reset agy conversations
     // without having to open a terminal.
-    if (typeof (api as { registerCommand?: unknown }).registerCommand === "function") {
+    safeRegister("slash-command", () => {
+      if (typeof (api as { registerCommand?: unknown }).registerCommand !== "function") return;
       (api as {
         registerCommand: (cmd: ReturnType<typeof buildAntigravityCommand>) => void;
       }).registerCommand(buildAntigravityCommand());
-    }
+    });
     // Media understanding — front agy's native vision (Gemini / Claude
     // through agy) as a one-shot describeImage provider so any openclaw
     // feature that needs image understanding can delegate to us without
     // routing a whole conversation through the harness.
-    if (
-      typeof (api as { registerMediaUnderstandingProvider?: unknown })
-        .registerMediaUnderstandingProvider === "function"
-    ) {
+    safeRegister("media-understanding", () => {
+      if (
+        typeof (api as { registerMediaUnderstandingProvider?: unknown })
+          .registerMediaUnderstandingProvider !== "function"
+      )
+        return;
       (api as {
         registerMediaUnderstandingProvider: (
           provider: ReturnType<typeof buildAntigravityMediaUnderstandingProvider>,
@@ -410,7 +446,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       }).registerMediaUnderstandingProvider(
         buildAntigravityMediaUnderstandingProvider(),
       );
-    }
+    });
   },
 });
 

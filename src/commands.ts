@@ -31,6 +31,21 @@ export function buildAntigravityCommand(
     description: "Inspect and reset local agy conversation state",
     acceptsArgs: true,
     requireAuth: true,
+    // Codex ships `agentPromptGuidance` to steer the model toward its
+    // slash surface when the model would otherwise walk the owner
+    // through a terminal recipe. Same pattern: the model should prefer
+    // `/antigravity reset` over dictating `openclaw sessions compact`
+    // when only agy's side of the context needs a reset.
+    agentPromptGuidance: [
+      {
+        text: "When only the agy CLI backing state needs a reset (Gemini reports a huge cacheRead, or the sidebar shows an inflated context specifically for a google-antigravity-cli chat), prefer `/antigravity reset <conversationId>` over telling the owner to run `openclaw sessions compact --max-lines N`. The slash command backs up the on-disk agy SQLite and lets the catch-up hook re-seed recent turns; the openclaw transcript stays intact.",
+        surfaces: ["openclaw_main"],
+      },
+      {
+        text: "Use `/antigravity list` and `/antigravity status <id>` to inspect what's on disk before recommending a reset. Reserve `openclaw sessions compact` for cases where the openclaw side of the transcript is itself too large.",
+        surfaces: ["openclaw_main"],
+      },
+    ],
     handler: async (ctx) => {
       const args = (ctx.args ?? "").trim();
       const [sub, ...rest] = args.split(/\s+/).filter(Boolean);
@@ -67,8 +82,13 @@ export function buildAntigravityCommand(
         let stat: fs.Stats;
         try {
           stat = fs.statSync(dbPath);
-        } catch {
-          return { text: `no agy state at ${dbPath}` };
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") return { text: `no agy state at ${dbPath}` };
+          return {
+            text: `cannot inspect ${dbPath}: ${(error as Error).message}`,
+            isError: true,
+          };
         }
         const summary = readAntigravityConversationSummaries(dataDir).find(
           (r) => r.conversationId === conversationId,

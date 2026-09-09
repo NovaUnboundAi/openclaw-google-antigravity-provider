@@ -230,10 +230,23 @@ export async function readConversationCache(
     if (isNodeError(error) && error.code === "ENOENT") return undefined;
     throw error;
   }
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Antigravity conversation cache is not a JSON object: ${cachePath}`);
+  // agy writes this file synchronously at turn end but a killed / crashed
+  // process can leave it truncated. Treat malformed JSON the same as
+  // "cache missing" — the caller falls back to launching a fresh
+  // conversation instead of crashing the turn.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[google-antigravity-cli] ignoring malformed conversation cache at ${cachePath}: ${
+        (error as Error).message
+      }`,
+    );
+    return undefined;
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
   return parsed as Record<string, string>;
 }
 

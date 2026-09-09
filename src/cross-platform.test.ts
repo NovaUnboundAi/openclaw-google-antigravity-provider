@@ -91,6 +91,30 @@ describe("resolveCachedConversationId key matching", () => {
       process.platform === "win32" || process.platform === "darwin";
     expect(result).toBe(caseInsensitive ? CID : undefined);
   });
+
+  it("treats a malformed cache file as empty instead of crashing the turn", async () => {
+    // agy writes the cache synchronously at turn end, but a killed / crashed
+    // process can leave it truncated. Before the fix, JSON.parse throwing
+    // here propagated all the way up to `captureSessionId`, terminating
+    // the run with an unhandled rejection.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-cache-corrupt-"));
+    tmpDirs.push(dir);
+    const cachePath = path.join(dir, "last_conversations.json");
+    fs.writeFileSync(cachePath, '{"/work/proj":"5f6f6f6', "utf8");
+    await expect(
+      resolveCachedConversationId({ cachePath, cwd: "/work/proj" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("returns undefined for a top-level JSON array (schema mismatch)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-cache-array-"));
+    tmpDirs.push(dir);
+    const cachePath = path.join(dir, "last_conversations.json");
+    fs.writeFileSync(cachePath, '["not","an","object"]', "utf8");
+    await expect(
+      resolveCachedConversationId({ cachePath, cwd: "/work/proj" }),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("resolveAntigravityDataDir", () => {

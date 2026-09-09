@@ -135,7 +135,14 @@ const defaultIo: McpBridgeIo = {
   writeFile: async (p, data) => {
     const tmp = `${p}.openclaw-${process.pid}.tmp`;
     await fsp.writeFile(tmp, data, { encoding: "utf8", mode: 0o600 });
-    await fsp.rename(tmp, p);
+    try {
+      await fsp.rename(tmp, p);
+    } catch (error) {
+      // Rename can fail for EACCES / EXDEV / EPERM. Clean up the temp so
+      // repeated failures don't accumulate under the user's HOME.
+      await fsp.unlink(tmp).catch(() => undefined);
+      throw error;
+    }
   },
   mkdir: async (p) => {
     await fsp.mkdir(p, { recursive: true });
@@ -143,9 +150,32 @@ const defaultIo: McpBridgeIo = {
 };
 
 async function readJson(io: McpBridgeIo, filePath: string): Promise<unknown> {
+  let raw: string;
   try {
-    return JSON.parse(await io.readFile(filePath));
-  } catch {
+    raw = await io.readFile(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[google-antigravity-cli] mcp-bridge: read failed for ${filePath}: ${
+        (error as Error).message
+      } — treating as empty`,
+    );
+    return {};
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    // Malformed JSON in a settings file we wrote ourselves usually means a
+    // concurrent overlapping run left it half-baked. Log so it's obvious in
+    // `openclaw gateway logs` — the alternative (silent empty) is what
+    // caused the "MCP bridge quietly disabled" audit finding.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[google-antigravity-cli] mcp-bridge: ignoring malformed JSON at ${filePath}: ${
+        (error as Error).message
+      }`,
+    );
     return {};
   }
 }

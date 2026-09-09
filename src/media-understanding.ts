@@ -184,7 +184,18 @@ export function buildAntigravityMediaUnderstandingProvider(options: {
       const text = extractProse(stdout) || "(agy returned no describable text)";
       return { text, model };
     } finally {
-      await fs.rm(workspace, { recursive: true, force: true }).catch(() => {});
+      // Log cleanup failures so orphan temp workspaces don't accumulate
+      // silently. `rm` on a fresh mkdtemp should always succeed; a
+      // failure here means something external (antivirus, still-open
+      // file handle) held the dir.
+      await fs.rm(workspace, { recursive: true, force: true }).catch((error) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[google-antigravity-cli] failed to clean vision workspace ${workspace}: ${
+            (error as Error).message
+          }`,
+        );
+      });
     }
   };
 
