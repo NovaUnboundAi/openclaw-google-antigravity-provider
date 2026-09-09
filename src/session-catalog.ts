@@ -304,6 +304,16 @@ export function registerAntigravitySessionCatalog(
   api: OpenClawPluginApi,
   options?: { env?: NodeJS.ProcessEnv; dataDir?: string },
 ): void {
+  // Mirror codex's `sessionCatalog.enabled` toggle so users can turn the
+  // native discovery off without losing the provider / CLI backend /
+  // slash command. Defaults to enabled; users who set it to `false`
+  // explicitly opt out.
+  const pluginConfig =
+    (api as { pluginConfig?: Record<string, unknown> }).pluginConfig ?? undefined;
+  const sessionCatalog = pluginConfig?.sessionCatalog as
+    | { enabled?: boolean }
+    | undefined;
+  if (sessionCatalog?.enabled === false) return;
   api.registerSessionCatalog(buildAntigravitySessionCatalog(options));
 }
 

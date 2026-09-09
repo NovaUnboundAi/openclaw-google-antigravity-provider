@@ -39,6 +39,7 @@ import {
 import { registerAntigravitySessionCatalog } from "./session-catalog.js";
 import { antigravityToolsFactory } from "./tools.js";
 import { buildAntigravityCommand } from "./commands.js";
+import { buildAntigravityMediaUnderstandingProvider } from "./media-understanding.js";
 
 export const GOOGLE_ANTIGRAVITY_AUTH_MARKER = "antigravity-local-session";
 
@@ -393,6 +394,22 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       (api as {
         registerCommand: (cmd: ReturnType<typeof buildAntigravityCommand>) => void;
       }).registerCommand(buildAntigravityCommand());
+    }
+    // Media understanding — front agy's native vision (Gemini / Claude
+    // through agy) as a one-shot describeImage provider so any openclaw
+    // feature that needs image understanding can delegate to us without
+    // routing a whole conversation through the harness.
+    if (
+      typeof (api as { registerMediaUnderstandingProvider?: unknown })
+        .registerMediaUnderstandingProvider === "function"
+    ) {
+      (api as {
+        registerMediaUnderstandingProvider: (
+          provider: ReturnType<typeof buildAntigravityMediaUnderstandingProvider>,
+        ) => void;
+      }).registerMediaUnderstandingProvider(
+        buildAntigravityMediaUnderstandingProvider(),
+      );
     }
   },
 });

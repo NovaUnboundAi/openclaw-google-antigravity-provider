@@ -10,7 +10,6 @@
 
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { Type, type Static } from "typebox";
 import type {
   AnyAgentTool,
   OpenClawPluginToolContext,
@@ -25,22 +24,44 @@ import {
   type AntigravityConversationSummary,
 } from "./session-catalog-sources.js";
 
-const ListParams = Type.Object({
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-  search: Type.Optional(Type.String({ maxLength: 200 })),
-});
-type ListParamsType = Static<typeof ListParams>;
+// Plain JSON-schema literals rather than a typebox import. The plugin
+// runtime loader doesn't hoist arbitrary transitive deps out of
+// openclaw's node_modules, so importing `typebox` here throws
+// `Cannot find module 'typebox'` at plugin load time and takes the
+// whole plugin down with it (provider, session catalog, everything).
+// `openclaw/plugin-sdk` accepts any TSchema-shaped object — the
+// literals below match what `Type.Object(...)` would produce.
+type SchemaLiteral = Record<string, unknown>;
+const ListParams: SchemaLiteral = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    limit: { type: "integer", minimum: 1, maximum: 100 },
+    search: { type: "string", maxLength: 200 },
+  },
+};
+type ListParamsType = { limit?: number; search?: string };
 
-const ReadParams = Type.Object({
-  conversationId: Type.String({ minLength: 8, maxLength: 64 }),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
-});
-type ReadParamsType = Static<typeof ReadParams>;
+const ReadParams: SchemaLiteral = {
+  type: "object",
+  additionalProperties: false,
+  required: ["conversationId"],
+  properties: {
+    conversationId: { type: "string", minLength: 8, maxLength: 64 },
+    limit: { type: "integer", minimum: 1, maximum: 500 },
+  },
+};
+type ReadParamsType = { conversationId: string; limit?: number };
 
-const ResetParams = Type.Object({
-  conversationId: Type.String({ minLength: 8, maxLength: 64 }),
-});
-type ResetParamsType = Static<typeof ResetParams>;
+const ResetParams: SchemaLiteral = {
+  type: "object",
+  additionalProperties: false,
+  required: ["conversationId"],
+  properties: {
+    conversationId: { type: "string", minLength: 8, maxLength: 64 },
+  },
+};
+type ResetParamsType = { conversationId: string };
 
 function jsonResult<T>(details: T): {
   content: Array<{ type: "text"; text: string }>;

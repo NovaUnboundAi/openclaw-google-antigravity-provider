@@ -37,6 +37,9 @@
       "antigravity_conversations_list",
       "antigravity_conversation_read",
       "antigravity_reset_binding"
+    ],
+    "mediaUnderstandingProviders": [
+      "google-antigravity-cli"
     ]
   },
   "cliCommands": [
@@ -208,7 +211,33 @@
         ],
         "default": 2000000,
         "description": "Cap on the SQLite size (bytes) of an agy conversation the plugin will --conversation-resume. Above the cap, --conversation <id> is dropped so agy starts a fresh conversation and the catch-up hook re-seeds recent turns. Set to false to disable the guard and always resume regardless of size."
+      },
+      "sessionCatalog": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "List agy conversations from ~/.gemini/antigravity-cli/conversation_summaries.db in the OpenClaw sidebar's session catalog. Disable to keep the agy provider available without publishing its native session list."
+          }
+        }
       }
+    }
+  },
+  "uiHints": {
+    "sessionCatalog": {
+      "label": "Native Session Discovery",
+      "help": "Controls whether past agy conversations from ~/.gemini/antigravity-cli/conversation_summaries.db appear in the OpenClaw sidebar. Disabling only hides the catalog — the agy CLI backend, provider and slash command stay available. Changes require a Gateway restart."
+    },
+    "sessionCatalog.enabled": {
+      "label": "Discover agy Conversations",
+      "help": "List native agy conversations in the sidebar."
+    },
+    "maxResumeDbBytes": {
+      "label": "Conversation Resume Cap",
+      "help": "Above this SQLite size, the plugin refuses to --conversation-resume and lets agy start fresh so replayed subagent history doesn't balloon the context window. Set to false to disable.",
+      "advanced": true
     }
   }
 }

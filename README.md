@@ -660,7 +660,31 @@ lifecycle machinery doesn't have to guess:
 - `doctorContract.configRepair: true` — hook into `openclaw doctor --fix` for config normalization on upgrades.
 - `backupResources` — declares `.gemini/antigravity-cli/{cache,logs}` as regenerable so `openclaw sessions export` doesn't bundle them.
 - `contracts.tools` — the three tool ids above.
+- `contracts.mediaUnderstandingProviders` — the one-shot image-description provider.
 - `cliCommands` — the `/antigravity` subcommand tree.
+
+### Media Understanding (image description)
+
+Agy's Gemini + Claude models handle vision natively. The plugin exposes
+that as a `MediaUnderstandingProvider` so any openclaw feature that
+needs image understanding (inline tools in another provider's turn,
+etc.) can delegate to agy without routing the whole conversation
+through this plugin.
+
+The invocation is deliberately lightweight — single-shot `agy --print`
+with a per-invocation scratch data dir (no `--conversation`, no MCP
+bridge), image staged to a temp workspace and referenced by path in the
+prompt. Default vision model is `gemini-3.7-flash`; callers can pass a
+`model` override via the standard `ImageDescriptionRequest`.
+
+### Session Catalog Visibility (`sessionCatalog.enabled`)
+
+Session-catalog registration is gated on
+`plugins.entries.google-antigravity-cli.config.sessionCatalog.enabled`
+(default: `true`) — same pattern the official codex plugin uses. Set
+it to `false` to keep the provider / CLI backend / `/antigravity`
+command available without publishing past agy conversations in the
+sidebar.
 
 ## Platform Notes
 
