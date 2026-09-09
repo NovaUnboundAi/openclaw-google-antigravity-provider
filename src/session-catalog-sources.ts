@@ -344,23 +344,28 @@ export async function readAntigravityConversationTranscript(params: {
         // notices, so it emits clean typed items instead of raw strings.
         const decoded = payload ? decodeStepPayload(payload, idx) : undefined;
         if (decoded) {
+          const ts =
+            "timestampMs" in decoded && decoded.timestampMs !== undefined
+              ? { timestampMs: decoded.timestampMs }
+              : {};
           if (decoded.kind === "userMessage") {
-            merged.push({ kind: "userMessage", text: decoded.text, stepIndex: idx });
+            merged.push({ kind: "userMessage", text: decoded.text, stepIndex: idx, ...ts });
             sawDecodedUser = true;
           } else if (decoded.kind === "agentMessage") {
-            merged.push({ kind: "agentMessage", text: decoded.text, stepIndex: idx });
+            merged.push({ kind: "agentMessage", text: decoded.text, stepIndex: idx, ...ts });
           } else if (decoded.kind === "toolCall") {
             merged.push({
               kind: "toolCall",
               text: formatToolCallText(decoded.toolName, decoded.args, decoded.summary),
               stepIndex: idx,
+              ...ts,
             });
             if (decoded.output) {
-              merged.push({ kind: "toolResult", text: decoded.output, stepIndex: idx });
+              merged.push({ kind: "toolResult", text: decoded.output, stepIndex: idx, ...ts });
             }
           } else if (decoded.kind === "systemNotice") {
             const prefix = decoded.summary ? `${decoded.summary}\n\n` : "";
-            merged.push({ kind: "other", text: prefix + decoded.text, stepIndex: idx });
+            merged.push({ kind: "other", text: prefix + decoded.text, stepIndex: idx, ...ts });
           }
           // decoded.kind === "empty" → consumed but silent; do NOT walk.
           continue;

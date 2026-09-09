@@ -6,8 +6,18 @@
 // session-catalog-sources.ts so nothing is silently dropped.
 
 export type DecodedStep =
-  | { readonly kind: "userMessage"; readonly stepIndex: number; readonly text: string }
-  | { readonly kind: "agentMessage"; readonly stepIndex: number; readonly text: string }
+  | {
+      readonly kind: "userMessage";
+      readonly stepIndex: number;
+      readonly text: string;
+      readonly timestampMs?: number;
+    }
+  | {
+      readonly kind: "agentMessage";
+      readonly stepIndex: number;
+      readonly text: string;
+      readonly timestampMs?: number;
+    }
   | {
       readonly kind: "toolCall";
       readonly stepIndex: number;
@@ -15,12 +25,14 @@ export type DecodedStep =
       readonly args?: string;
       readonly summary?: string;
       readonly output?: string;
+      readonly timestampMs?: number;
     }
   | {
       readonly kind: "systemNotice";
       readonly stepIndex: number;
       readonly text: string;
       readonly summary?: string;
+      readonly timestampMs?: number;
     }
   // Recognized step type that has no user-visible content (e.g. an agy
   // internal handshake, or a duplicated tool-call announcement whose
@@ -119,6 +131,23 @@ function parseChild(fields: readonly WireField[], number: number): WireField[] |
   return parseFields(raw);
 }
 
+// agy stores the step creation timestamp at #5.#1.{#1 seconds, #2 nanos}
+// (google.protobuf.Timestamp shape). Combine into a JS ms value or
+// return undefined when either the container or the seconds field is
+// missing.
+function pickTimestampMs(top: readonly WireField[]): number | undefined {
+  const meta = parseChild(top, 5);
+  const ts = meta ? parseChild(meta, 1) : undefined;
+  if (!ts) return undefined;
+  const seconds = pickVarint(ts, 1);
+  const nanos = pickVarint(ts, 2) ?? 0;
+  if (seconds === undefined) return undefined;
+  const ms = seconds * 1000 + Math.floor(nanos / 1_000_000);
+  // Guard against Go zero-value time (0001-01-01) that would blow up the UI.
+  if (ms < Date.UTC(2000, 0, 1)) return undefined;
+  return ms;
+}
+
 // step_type → decoder. See docs/AGY_STEP_SCHEMA.md for the field-number
 // reasoning; anything not in this table falls through to the caller.
 export function decodeStepPayload(
@@ -128,6 +157,8 @@ export function decodeStepPayload(
   const top = parseFields(bytes);
   const stepType = pickVarint(top, 1);
   if (stepType === undefined) return undefined;
+  const timestampMs = pickTimestampMs(top);
+  const ts = timestampMs !== undefined ? { timestampMs } : {};
 
   switch (stepType) {
     case 14: {
@@ -138,7 +169,7 @@ export function decodeStepPayload(
       const text = pickString(container, 2)
         ?? pickString(parseChild(container, 3) ?? [], 1);
       if (!text) return undefined;
-      return { kind: "userMessage", stepIndex, text };
+      return { kind: "userMessage", stepIndex, text, ...ts };
     }
     case 15: {
       // Agent turn. Two variants share step_type 15:
@@ -158,7 +189,7 @@ export function decodeStepPayload(
         ? accumulated
         : primary;
       if (!text) return { kind: "empty", stepIndex };
-      return { kind: "agentMessage", stepIndex, text };
+      return { kind: "agentMessage", stepIndex, text, ...ts };
     }
     case 23:
     case 98: {
@@ -223,6 +254,7 @@ export function decodeStepPayload(
         ...(args ? { args } : {}),
         ...(summary ? { summary } : {}),
         ...(output ? { output } : {}),
+        ...ts,
       };
     }
     case 17: {
@@ -235,7 +267,7 @@ export function decodeStepPayload(
         ? pickString(inner, 1) ?? pickString(inner, 9) ?? pickString(inner, 2)
         : undefined;
       if (!message) return undefined;
-      return { kind: "agentMessage", stepIndex, text: message };
+      return { kind: "agentMessage", stepIndex, text: message, ...ts };
     }
     case 101: {
       // System / task notification. #114.#2.#2 is the full body; #114.#2.#1
@@ -253,6 +285,7 @@ export function decodeStepPayload(
         stepIndex,
         text,
         ...(summary ? { summary } : {}),
+        ...ts,
       };
     }
     default:

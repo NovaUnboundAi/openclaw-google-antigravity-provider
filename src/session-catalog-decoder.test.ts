@@ -183,6 +183,36 @@ describe("decodeStepPayload", () => {
     });
   });
 
+  it("extracts the step timestamp from #5.#1.{#1 seconds, #2 nanos}", () => {
+    const expectedMs = Date.UTC(2026, 0, 15, 12, 0, 0, 500);
+    const seconds = Math.floor(expectedMs / 1000);
+    const nanos = (expectedMs % 1000) * 1_000_000;
+    const buf = build([
+      ...varintField(1, 15),
+      ...msg(5, [...msg(1, [...varintField(1, seconds), ...varintField(2, nanos)])]),
+      ...msg(20, [...stringField(8, "hello world")]),
+    ]);
+    const out = decodeStepPayload(buf, 0);
+    expect(out?.kind).toBe("agentMessage");
+    if (out?.kind === "agentMessage") {
+      expect(out.timestampMs).toBe(expectedMs);
+    }
+  });
+
+  it("drops zero-value timestamps (Go's 0001-01-01) so the UI doesn't render year 1", () => {
+    // The Go zero-value time serializes to seconds < 0. Encoding a small
+    // positive value that would come out sub-2000 exercises the guard.
+    const buf = build([
+      ...varintField(1, 15),
+      ...msg(5, [...msg(1, [...varintField(1, 946684799)])]), // 2000-01-01 - 1s
+      ...msg(20, [...stringField(8, "hello world")]),
+    ]);
+    const out = decodeStepPayload(buf, 0);
+    if (out?.kind === "agentMessage") {
+      expect(out.timestampMs).toBeUndefined();
+    }
+  });
+
   it("marks type-23 / type-98 as empty so they don't leak metadata", () => {
     expect(decodeStepPayload(build([...varintField(1, 23)]), 0)).toEqual({
       kind: "empty",
