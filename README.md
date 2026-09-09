@@ -268,6 +268,46 @@ leave agy's MCP config alone:
 Any MCP servers you configure in OpenClaw are forwarded by the same mechanism,
 so agy gets those too.
 
+### Subagent History Cap (`maxResumeDbBytes`)
+
+Agy stores every subagent invocation, every `manage_task` transition and
+every tool result in the conversation's SQLite forever (see the `step_type`
+histogram in [`docs/AGY_STEP_SCHEMA.md`](docs/AGY_STEP_SCHEMA.md) — one
+long-running Telegram chat we observed hit **101 rows of `manage_task`
+history totaling 1.7 MB**, which agy faithfully replayed every turn and
+ballooned Gemini's reported cache-read to 8.2 M tokens on a single reply).
+This is agy's own state, not openclaw's channel context — the wrapper strip
+never sees it.
+
+To prevent the pileup from compounding indefinitely, the plugin refuses to
+`--conversation`-resume any db above a byte threshold. When the cap trips,
+the plugin drops `--conversation <id>` from the invocation so agy starts a
+fresh conversation for that turn; openclaw's catch-up hook (already
+installed) re-seeds the recent transcript on the way in, so the user-visible
+conversation continues without a break.
+
+Default cap: **2 MB** (`DEFAULT_MAX_RESUME_DB_BYTES`). Raise or disable it
+per-plugin:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "google-antigravity-cli": {
+        "enabled": true,
+        "config": {
+          "maxResumeDbBytes": 5000000
+        }
+      }
+    }
+  }
+}
+```
+
+Set `maxResumeDbBytes: false` to turn the guard off entirely (agy replays
+everything, no matter the size). The trigger prints a warning to the
+plugin's stderr so you can spot the drop in `openclaw gateway logs`.
+
 ### Channel Context Stripping
 
 OpenClaw's cli-runner composes every turn's `--print` value by prepending the

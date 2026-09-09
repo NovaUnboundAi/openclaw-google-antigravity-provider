@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import type {
   CliBackendConfig,
@@ -477,8 +478,60 @@ export function normalizeGoogleAntigravityBackendConfig(
   return config;
 }
 
+// agy stores every subagent invocation, every task-status update and every
+// `manage_task` result forever in the conversation's SQLite (see the
+// step_type histogram in docs/AGY_STEP_SCHEMA.md — a chat with a lot of
+// background work can hit millions of tokens of replay just from that).
+// When we `--conversation <id>` into such a DB agy replays *everything*
+// on the next turn, blowing the model's context window. Above this
+// byte threshold we drop `--conversation` so agy starts a fresh
+// conversation; the openclaw catch-up hook then re-seeds the recent
+// turns it needs to keep going.
+export const DEFAULT_MAX_RESUME_DB_BYTES = 2_000_000;
+
+export function resumeGuardEnabled(
+  pluginConfig: Record<string, any> | undefined,
+  backendConfig: Record<string, any> | undefined,
+): { enabled: boolean; limitBytes: number } {
+  const raw =
+    backendConfig?.maxResumeDbBytes ??
+    pluginConfig?.maxResumeDbBytes;
+  if (raw === false) return { enabled: false, limitBytes: 0 };
+  const n = typeof raw === "number" && raw > 0 ? raw : DEFAULT_MAX_RESUME_DB_BYTES;
+  return { enabled: true, limitBytes: n };
+}
+
+// If `--conversation <id>` is in `args` and its SQLite on disk is over
+// `limitBytes`, strip both tokens so agy starts a fresh conversation.
+// Returns the resulting args and, on drop, the conversation id + size for
+// logging.
+export function dropOversizedResume(
+  args: readonly string[],
+  dataDir: string,
+  limitBytes: number,
+): { args: string[]; dropped?: { conversationId: string; bytes: number } } {
+  const flagIdx = args.indexOf("--conversation");
+  if (flagIdx < 0 || flagIdx + 1 >= args.length) return { args: [...args] };
+  const conversationId = args[flagIdx + 1]!;
+  if (!conversationId || conversationId.startsWith("{")) return { args: [...args] };
+  const dbPath = path.join(dataDir, "conversations", `${conversationId}.db`);
+  let bytes = 0;
+  try {
+    bytes = fsSync.statSync(dbPath).size;
+  } catch {
+    // Missing db: let agy handle it (it'll recreate). Don't strip — the
+    // caller may have deliberately named a conversation that will be
+    // created on this run.
+    return { args: [...args] };
+  }
+  if (bytes <= limitBytes) return { args: [...args] };
+  const next = args.slice(0, flagIdx).concat(args.slice(flagIdx + 2));
+  return { args: next, dropped: { conversationId, bytes } };
+}
+
 export function resolveGoogleAntigravityExecutionArgs(
   context: CliBackendResolveExecutionArgsContext,
+  options: { dataDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): string[] {
   const cfg = context.config as Record<string, any> | undefined;
   const providerId = context.provider || GOOGLE_ANTIGRAVITY_PROVIDER_ID;
@@ -497,12 +550,27 @@ export function resolveGoogleAntigravityExecutionArgs(
     cfg?.agents?.defaults?.timeoutSeconds;
 
   const timeoutStr = formatGoDuration(configuredTimeout, DEFAULT_PRINT_TIMEOUT);
-  const args = applyPermissionMode(
+  let args = applyPermissionMode(
     context.baseArgs,
     resolvePermissionMode(
       backendConfig?.permissionMode ?? pluginConfig?.permissionMode,
     ),
   );
+
+  const guard = resumeGuardEnabled(pluginConfig, backendConfig);
+  if (guard.enabled) {
+    const dataDir = options.dataDir ?? resolveAntigravityDataDir(options.env ?? process.env);
+    const guarded = dropOversizedResume(args, dataDir, guard.limitBytes);
+    args = guarded.args;
+    if (guarded.dropped) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[google-antigravity-cli] dropping --conversation ${guarded.dropped.conversationId} ` +
+          `(${(guarded.dropped.bytes / 1_000_000).toFixed(1)}MB > ${(guard.limitBytes / 1_000_000).toFixed(1)}MB cap); ` +
+          `agy will start a fresh conversation and openclaw's catch-up hook will re-seed recent turns.`,
+      );
+    }
+  }
   const timeoutIndex = args.indexOf("--print-timeout");
 
   if (timeoutIndex !== -1 && timeoutIndex + 1 < args.length) {

@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   availableEffortsForModel,
   buildGoogleAntigravityCliBackend,
   clampEffortForModel,
+  DEFAULT_MAX_RESUME_DB_BYTES,
+  dropOversizedResume,
   GOOGLE_ANTIGRAVITY_MODEL_ALIASES,
   GOOGLE_ANTIGRAVITY_PROVIDER_ID,
   mapThinkingLevelToAgyEffort,
@@ -627,4 +632,123 @@ describe("google-antigravity-cli CLI backend", () => {
     });
   });
 
+});
+
+describe("dropOversizedResume — resume guard", () => {
+  let dataDir: string;
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-resume-guard-"));
+    fs.mkdirSync(path.join(dataDir, "conversations"));
+  });
+  afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  function writeDb(id: string, bytes: number) {
+    fs.writeFileSync(
+      path.join(dataDir, "conversations", `${id}.db`),
+      Buffer.alloc(bytes),
+    );
+  }
+
+  it("leaves args untouched when the resumed db is under the limit", () => {
+    writeDb("abc", 1_000_000);
+    const out = dropOversizedResume(
+      ["--conversation", "abc", "--print", "hi"],
+      dataDir,
+      DEFAULT_MAX_RESUME_DB_BYTES,
+    );
+    expect(out.dropped).toBeUndefined();
+    expect(out.args).toEqual(["--conversation", "abc", "--print", "hi"]);
+  });
+
+  it("strips `--conversation <id>` (and only that pair) when the db is over the limit", () => {
+    writeDb("bloated", 5_000_000);
+    const out = dropOversizedResume(
+      ["--conversation", "bloated", "--print", "hi", "--effort", "high"],
+      dataDir,
+      DEFAULT_MAX_RESUME_DB_BYTES,
+    );
+    expect(out.dropped).toEqual({ conversationId: "bloated", bytes: 5_000_000 });
+    expect(out.args).toEqual(["--print", "hi", "--effort", "high"]);
+  });
+
+  it("leaves args untouched when there is no --conversation flag", () => {
+    const out = dropOversizedResume(
+      ["--print", "hi"],
+      dataDir,
+      DEFAULT_MAX_RESUME_DB_BYTES,
+    );
+    expect(out.dropped).toBeUndefined();
+    expect(out.args).toEqual(["--print", "hi"]);
+  });
+
+  it("leaves the placeholder `{sessionId}` alone (openclaw hasn't substituted yet)", () => {
+    const out = dropOversizedResume(
+      ["--conversation", "{sessionId}", "--print", "hi"],
+      dataDir,
+      DEFAULT_MAX_RESUME_DB_BYTES,
+    );
+    expect(out.dropped).toBeUndefined();
+    expect(out.args).toEqual(["--conversation", "{sessionId}", "--print", "hi"]);
+  });
+
+  it("leaves args untouched when the conversation db doesn't exist yet", () => {
+    const out = dropOversizedResume(
+      ["--conversation", "will-be-created", "--print", "hi"],
+      dataDir,
+      DEFAULT_MAX_RESUME_DB_BYTES,
+    );
+    expect(out.dropped).toBeUndefined();
+    expect(out.args).toEqual(["--conversation", "will-be-created", "--print", "hi"]);
+  });
+});
+
+describe("resolveGoogleAntigravityExecutionArgs — resume guard integration", () => {
+  let dataDir: string;
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-exec-args-"));
+    fs.mkdirSync(path.join(dataDir, "conversations"));
+  });
+  afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  it("drops --conversation when the bound db exceeds the configured cap", () => {
+    fs.writeFileSync(
+      path.join(dataDir, "conversations", "huge.db"),
+      Buffer.alloc(3_000_000),
+    );
+    const out = resolveGoogleAntigravityExecutionArgs(
+      {
+        baseArgs: ["--conversation", "huge", "--print", "hi"],
+        modelId: "gemini-3.7-flash",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        config: {},
+      } as any,
+      { dataDir },
+    );
+    expect(out).not.toContain("--conversation");
+    expect(out).not.toContain("huge");
+  });
+
+  it("keeps --conversation when maxResumeDbBytes=false disables the guard", () => {
+    fs.writeFileSync(
+      path.join(dataDir, "conversations", "huge.db"),
+      Buffer.alloc(3_000_000),
+    );
+    const out = resolveGoogleAntigravityExecutionArgs(
+      {
+        baseArgs: ["--conversation", "huge", "--print", "hi"],
+        modelId: "gemini-3.7-flash",
+        provider: GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+        config: {
+          plugins: {
+            entries: {
+              [GOOGLE_ANTIGRAVITY_PROVIDER_ID]: { config: { maxResumeDbBytes: false } },
+            },
+          },
+        },
+      } as any,
+      { dataDir },
+    );
+    expect(out).toContain("--conversation");
+    expect(out).toContain("huge");
+  });
 });
