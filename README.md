@@ -202,9 +202,15 @@ auto-approved. Pick `sandbox` or `settings` if that is not acceptable.
 
 ### Restricted runs (exact tool caps)
 
-When OpenClaw supplies an exact tool cap, this release requires **agy
-1.2.1**, an empty native-tool selection, and the plugin's normal Node wrapper.
-Other CLI versions fail closed until their behavior has been verified.
+When OpenClaw supplies an exact tool cap, the plugin applies the same restricted
+execution policy regardless of the **agy version**. There is no version allowlist
+or `agy --version` preflight. An empty native-tool selection and the plugin's
+normal Node wrapper are still required.
+
+The CLI must support the custom-agent isolation fields and `PreToolUse` hooks
+used below; removing the version gate does not certify every historical or
+future CLI release. Setup or execution failures never trigger an unrestricted
+retry.
 
 Each restricted run starts a fresh, private custom agent with only the captured
 OpenClaw MCP transport. A generated `PreToolUse` hook allows only the selected

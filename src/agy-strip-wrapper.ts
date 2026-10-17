@@ -62,7 +62,7 @@ async function main(): Promise<never> {
   // Restricted runs never touch the user's shared MCP configuration. Materialize
   // their private agent only now, after core has bound the MCP capture attempt.
   const restricted = process.env[EXACT_CAP_ENV] !== undefined
-    ? await prepareExactToolExecution({ command, args: strippedArgs, env: process.env })
+    ? await prepareExactToolExecution({ args: strippedArgs, env: process.env })
     : undefined;
   const cleanup = restricted?.cleanup ?? await applyBridge(process.env);
 
