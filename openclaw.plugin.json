@@ -33,9 +33,6 @@
       "authProfilePrefixes": ["google-antigravity-cli:"]
     }
   ],
-  "doctorContract": {
-    "configRepair": true
-  },
   "contracts": {
     "tools": [
       "antigravity_conversations_list",

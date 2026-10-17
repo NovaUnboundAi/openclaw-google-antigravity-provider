@@ -690,7 +690,6 @@ The manifest declares the plugin owns everything it produces so openclaw's
 lifecycle machinery doesn't have to guess:
 
 - `sessionRouteStateOwners` — provider / runtime / cli-session-key / auth-profile-prefix all namespaced under `google-antigravity-cli`.
-- `doctorContract.configRepair: true` — hook into `openclaw doctor --fix` for config normalization on upgrades.
 - `backupResources` — declares `.gemini/antigravity-cli/{cache,logs}` as regenerable so `openclaw sessions export` doesn't bundle them.
 - `contracts.tools` — the three tool ids above.
 - `contracts.mediaUnderstandingProviders` — the one-shot image-description provider.
