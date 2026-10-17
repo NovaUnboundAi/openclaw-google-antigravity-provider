@@ -62,7 +62,7 @@ describe("buildGoogleAntigravityProvider", () => {
     expect(result?.configPatch?.agents?.defaults?.modelPolicy?.allow).toEqual(
       expect.arrayContaining([
         "openai/*",
-        `${GOOGLE_ANTIGRAVITY_PROVIDER_ID}/gemini-3.7-flash`,
+        `${GOOGLE_ANTIGRAVITY_PROVIDER_ID}/gemini-3.8-flash`,
       ]),
     );
   });

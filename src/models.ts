@@ -24,27 +24,6 @@ export const STATIC_MODEL_FALLBACK: readonly AntigravityModel[] = [
     contextWindow: 1_000_000,
     input: ["text", "image"],
   },
-  {
-    id: "gemini-3.7-flash",
-    name: "Gemini 3.7 Flash",
-    reasoning: true,
-    contextWindow: 1_000_000,
-    input: ["text", "image"],
-  },
-  {
-    id: "gemini-3.6-flash",
-    name: "Gemini 3.6 Flash",
-    reasoning: true,
-    contextWindow: 1_000_000,
-    input: ["text", "image"],
-  },
-  {
-    id: "gemini-3.1-pro",
-    name: "Gemini 3.1 Pro",
-    reasoning: true,
-    contextWindow: 1_000_000,
-    input: ["text", "image"],
-  },
   // Non-Gemini families come as a single ID from agy so nothing to collapse.
   {
     id: "claude-sonnet-4-6",

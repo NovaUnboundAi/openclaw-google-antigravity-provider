@@ -7,7 +7,7 @@ Production-ready OpenClaw plugin for delegating persistent agent turns and model
 - **Persistent Multi-turn Agent Sessions:** Full SQLite conversation caching and automatic resume binding across turns.
 - **Dynamic Configurable Timeouts:** Automatically derives `--print-timeout` dynamically from `timeoutSeconds` or custom plugin settings (default: `30m0s`), preventing premature agent turn termination.
 - **Image Input:** Gemini and Claude models accept images. OpenClaw stages attachments into the workspace and appends their paths to the prompt; `agy` opens them with its own `view_file` tool.
-- **Full Model Support:** Gemini 3.8 Flash, Gemini 3.7 Flash, Gemini 3.6 Flash, Gemini 3.1 Pro (effort routed through OpenClaw's thinking-level slider → `agy --effort {low|medium|high}`), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B.
+- **Full Model Support:** Gemini 3.8 Flash (effort routed through OpenClaw's thinking-level slider → `agy --effort {low|medium|high}`), Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking), GPT-OSS 120B.
 - **Synthetic Local Auth:** Seamlessly uses local signed-in `agy` credentials with zero expiring tokens or stored secrets in OpenClaw.
 - **Sanitized Execution Environment:** Automatically isolates user data via `ANTIGRAVITY_USER_DATA_DIR` and scrubs conflicting ambient Google API keys.
 - **OpenClaw Tools via MCP:** Bridges OpenClaw's loopback MCP server into agy for the duration of each run, so agy can call OpenClaw's own tools and any MCP servers you configure in OpenClaw.
@@ -106,6 +106,15 @@ At that point `openclaw models` should list every model row `agy models`
 publishes, and the `/models` picker in your channels should show
 `google-antigravity-cli` with them under it. Pick one and start chatting.
 
+Model-picker refreshes use the live `agy models` catalog through both the
+text-runtime discovery entry and the unified catalog. Gemini effort variants
+collapse into one row per family; the thinking-level slider selects effort.
+Discovery caches successful results for five minutes, keeps the last known list
+if a refresh fails, and uses the four-model bundled baseline when offline with
+no cache. The default and `flash` shortcuts target `gemini-3.8-flash`. Explicit
+legacy model IDs and Pro shortcuts remain pass-through selections, not advertised
+current models; their availability is determined by agy.
+
 ### 4. Verify end-to-end
 
 Once a channel turn has actually run through agy:
@@ -115,8 +124,8 @@ Once a channel turn has actually run through agy:
   `openclaw health --json`.
 - The Telegram `/status` card should not show `⚠️ Plugins: … plugin error`.
 - `openclaw models list --provider google-antigravity-cli --json` should list
-  the collapsed base rows (`gemini-3.8-flash`, `-3.7-flash`, `-3.6-flash`,
-  `-3.1-pro`, plus Claude Sonnet 4.6, Claude Opus 4.6, and GPT-OSS 120B).
+  the current collapsed base rows: Gemini 3.8 Flash, Claude Sonnet 4.6,
+  Claude Opus 4.6, and GPT-OSS 120B (verified with `agy models` on 2026-10-16).
 - To confirm the MCP bridge, ask the agent "list the openclaw MCP tools you
   have" — it should name entries under the `openclaw__` prefix. If it does
   not, `~/.gemini/config/mcp_config.json` will be empty after the turn
@@ -140,9 +149,6 @@ canonical block for `~/.openclaw/openclaw.json`:
         "api": "google-generative-ai",
         "models": [
           { "id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "reasoning": true, "input": ["text", "image"] },
-          { "id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash", "reasoning": true, "input": ["text", "image"] },
-          { "id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "reasoning": true, "input": ["text", "image"] },
-          { "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro", "reasoning": true, "input": ["text", "image"] },
           { "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)", "reasoning": true, "input": ["text", "image"] },
           { "id": "claude-opus-4-6-thinking", "name": "Claude Opus 4.6 (Thinking)", "reasoning": true, "input": ["text", "image"] },
           { "id": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)", "reasoning": true, "input": ["text"] }
@@ -701,7 +707,7 @@ through this plugin.
 The invocation is deliberately lightweight — single-shot `agy --print`
 with a per-invocation scratch data dir (no `--conversation`, no MCP
 bridge), image staged to a temp workspace and referenced by path in the
-prompt. Default vision model is `gemini-3.7-flash`; callers can pass a
+prompt. Default vision model is `gemini-3.8-flash`; callers can pass a
 `model` override via the standard `ImageDescriptionRequest`.
 
 ### Session Catalog Visibility (`sessionCatalog.enabled`)

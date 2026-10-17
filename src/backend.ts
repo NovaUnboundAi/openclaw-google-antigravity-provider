@@ -60,7 +60,7 @@ export function applyPermissionMode(
   return stripped;
 }
 export const GOOGLE_ANTIGRAVITY_DEFAULT_MODEL_REF =
-  "google-antigravity-cli/gemini-3.7-flash";
+  "google-antigravity-cli/gemini-3.8-flash";
 
 export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   // Bare shortcuts map to the base family, where the thinking-level slider
@@ -68,10 +68,12 @@ export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   // resolve to the matching effort-baked id instead — collapsing them to the
   // base family would drop the level the user explicitly asked for and let
   // the slider silently override it.
-  flash: "gemini-3.7-flash",
-  "flash-high": "gemini-3.7-flash-high",
-  "flash-medium": "gemini-3.7-flash-medium",
-  "flash-low": "gemini-3.7-flash-low",
+  flash: "gemini-3.8-flash",
+  "flash-high": "gemini-3.8-flash-high",
+  "flash-medium": "gemini-3.8-flash-medium",
+  "flash-low": "gemini-3.8-flash-low",
+  // Preserve explicit legacy selections without advertising them as current
+  // catalog rows or silently redirecting a Pro request to a Flash model.
   pro: "gemini-3.1-pro",
   // agy publishes Pro as high/low only — there is no `gemini-3.1-pro-medium`.
   "pro-low": "gemini-3.1-pro-low",
@@ -87,9 +89,8 @@ export const GOOGLE_ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
   "claude-sonnet-4-6": "claude-sonnet-4-6",
   "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
   "gpt-oss-120b-medium": "gpt-oss-120b-medium",
-  // Effort-baked identity aliases kept for existing configs: agy still
-  // accepts them, and the ID already carries the effort so nothing extra
-  // needs to be injected.
+  // Effort-baked identity aliases kept for existing configs. Availability is
+  // decided by agy; the ID already carries the effort so none is injected.
   "gemini-3.8-flash-high": "gemini-3.8-flash-high",
   "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
   "gemini-3.8-flash-low": "gemini-3.8-flash-low",
@@ -808,7 +809,7 @@ export function buildGoogleAntigravityCliBackend(
   const backend: CliBackendPlugin = {
     id: backendId,
     modelProvider: backendId,
-    liveTest: { defaultModelRef: `${backendId}/gemini-3.7-flash` },
+    liveTest: { defaultModelRef: `${backendId}/gemini-3.8-flash` },
     nativeToolMode: "selectable",
     toolAvailabilityEnforcement: "prepare-execution",
     ownsNativeCompaction: true,

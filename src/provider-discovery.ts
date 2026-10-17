@@ -2,6 +2,7 @@ import type { ProviderPlugin } from "openclaw/plugin-sdk/plugin-entry";
 
 import {
   buildAntigravityProviderCatalog,
+  buildAntigravityRuntimeCatalog,
   GOOGLE_ANTIGRAVITY_AUTH_MARKER,
 } from "./index.js";
 import { probeAgy } from "./probe.js";
@@ -13,6 +14,7 @@ const providerDiscovery: ProviderPlugin = {
   label: "Google Antigravity CLI",
   docsPath: "/gateway/cli-backends",
   auth: [],
+  catalog: buildAntigravityRuntimeCatalog(providerId),
   staticCatalog: {
     order: "simple",
     run: async () => ({ provider: buildAntigravityProviderCatalog(providerId) }),

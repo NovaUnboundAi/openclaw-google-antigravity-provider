@@ -69,7 +69,7 @@
     "providers": {
       "google-antigravity-cli": {
         "aliases": {
-          "flash": "gemini-3.7-flash",
+          "flash": "gemini-3.8-flash",
           "pro": "gemini-3.1-pro",
           "sonnet": "claude-sonnet-4-6",
           "opus": "claude-opus-4-6-thinking",
@@ -86,35 +86,11 @@
       "google-antigravity-cli": {
         "baseUrl": "http://antigravity.local",
         "api": "google-generative-ai",
-        "defaultModel": "gemini-3.7-flash",
+        "defaultModel": "gemini-3.8-flash",
         "models": [
           {
             "id": "gemini-3.8-flash",
             "name": "Gemini 3.8 Flash",
-            "input": ["text", "image"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.7-flash",
-            "name": "Gemini 3.7 Flash",
-            "input": ["text", "image"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.6-flash",
-            "name": "Gemini 3.6 Flash",
-            "input": ["text", "image"],
-            "contextWindow": 1000000,
-            "reasoning": true,
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "gemini-3.1-pro",
-            "name": "Gemini 3.1 Pro",
             "input": ["text", "image"],
             "contextWindow": 1000000,
             "reasoning": true,
