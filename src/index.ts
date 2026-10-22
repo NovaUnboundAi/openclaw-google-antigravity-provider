@@ -173,7 +173,9 @@ export function buildAntigravityRuntimeCatalog(
     order: "simple",
     run: async (ctx) => {
       if (shouldSkipLiveFetch(ctx.env ?? process.env)) return null;
-      const live = await getLiveAntigravityModels({ signal: ctx.signal });
+      // Older supported SDKs omit this optional cancellation field.
+      const context: typeof ctx & { signal?: AbortSignal } = ctx;
+      const live = await getLiveAntigravityModels({ signal: context.signal });
       // OpenClaw falls back to staticCatalog when no live/cache list exists.
       return live
         ? { provider: buildAntigravityProviderCatalog(providerId, live.models) }

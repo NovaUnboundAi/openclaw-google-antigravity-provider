@@ -45,7 +45,8 @@ describe.each([
     const controller = new AbortController();
     const catalog = build().catalog;
     expect(catalog).toBeDefined();
-    const result = await catalog?.run({ ...catalogContext(), signal: controller.signal });
+    const context = { ...catalogContext(), signal: controller.signal };
+    const result = await catalog?.run(context);
 
     expect(getLiveAntigravityModels).toHaveBeenCalledExactlyOnceWith({
       signal: controller.signal,
@@ -64,7 +65,7 @@ describe.each([
     vi.mocked(getLiveAntigravityModels).mockResolvedValue(null);
     const provider = build();
     expect(await provider.catalog?.run(catalogContext())).toBeNull();
-    expect(getLiveAntigravityModels).toHaveBeenCalledTimes(1);
+    expect(getLiveAntigravityModels).toHaveBeenCalledExactlyOnceWith({ signal: undefined });
 
     vi.mocked(getLiveAntigravityModels).mockClear();
     const fallback = await provider.staticCatalog?.run(catalogContext());
