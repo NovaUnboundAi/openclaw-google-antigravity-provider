@@ -781,10 +781,19 @@ transport.
 ## Development
 
 ```bash
-npm install
+npm ci --ignore-scripts
+npm audit
+npm run typecheck
 npm run build
 npm test
 ```
+
+The development SDK is tested against OpenClaw 2026.10.5. Its pinned npm
+12.2.0 dependency contains vulnerable bundled packages, so this repository
+overrides only OpenClaw's npm dependency to the patched 12.2.1 release. Remove
+that override when the SDK itself requires a patched npm version. This affects
+the development dependency tree, not the user's installed Gateway or plugin
+runtime. CI audits development and production dependencies together.
 
 ## License
 
