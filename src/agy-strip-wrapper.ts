@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Thin wrapper that OpenClaw spawns instead of raw `agy`.
 //
-// Two jobs:
+// Three jobs:
 //
 // (1) Strip the openclaw-injected `⟦openclaw:ctx⟧` channel-context blocks
 //     from the `--print` argv value. OpenClaw's cli-runner composes the
@@ -20,8 +20,15 @@
 //     inside `prepareExecution` reads the pre-capture settings (empty
 //     key → auth fails). Writing here reads the post-capture settings.
 //
-// Everything else (stdio streaming, exit code, signal handling) is
-// inherited so OpenClaw's stream-json parser and cancellation still work.
+// (3) Sniff agy's stderr for the two 1.2.6+ terminal markers the stream-json
+//     stdout channel doesn't cover (`AGY_ERROR: {json}` and
+//     `[agy] print timeout ...`) and, on child exit, append a synthesised
+//     `event:"result"` line to our stdout so openclaw's parser classifies
+//     these runs as errors instead of accepting whatever partial text made
+//     it out. Stderr is still forwarded verbatim so operators see agy's
+//     own diagnostics untouched. See src/agy-stderr-sniff.ts.
+//
+// Signal handling and exit code are inherited so cancellation still works.
 
 import { spawn } from "node:child_process";
 import fsp from "node:fs/promises";
@@ -29,6 +36,7 @@ import path from "node:path";
 import { applyOpenClawMcpBridge, resolveAgyMcpConfigPath } from "./mcp-bridge.ts";
 import { stripArgvChannelContext } from "./prompt-strip.ts";
 import { EXACT_CAP_ENV, prepareExactToolExecution } from "./exact-tools.ts";
+import { serializeAgyIncidentAsResult, sniffAgyStderr } from "./agy-stderr-sniff.ts";
 
 function resolveRealAgy(env: NodeJS.ProcessEnv): string {
   return env.OPENCLAW_ANTIGRAVITY_REAL_COMMAND?.trim() || "agy";
@@ -56,6 +64,17 @@ async function applyBridge(env: NodeJS.ProcessEnv): Promise<(() => Promise<void>
   }
 }
 
+// Wait for the write callback even when the chunk fits below the high-water
+// mark: returning true only signals buffer capacity, not a completed pipe write.
+function writeAndDrain(stream: NodeJS.WritableStream, chunk: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(chunk, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 async function main(): Promise<never> {
   const strippedArgs = stripArgvChannelContext(process.argv.slice(2));
   const command = resolveRealAgy(process.env);
@@ -66,10 +85,19 @@ async function main(): Promise<never> {
     : undefined;
   const cleanup = restricted?.cleanup ?? await applyBridge(process.env);
 
+  // stdin/stdout stay inherited so agy streams stream-json directly to
+  // openclaw with no copy overhead. stderr is piped so the sniffer can watch
+  // for terminal markers; every chunk is forwarded to our own stderr byte-for-
+  // byte, keeping the operator-visible diagnostics untouched.
   const child = spawn(command, restricted?.args ?? strippedArgs, {
-    stdio: "inherit",
+    stdio: ["inherit", "inherit", "pipe"],
     env: process.env,
   });
+
+  const stderrStream = child.stderr;
+  const sniffer = stderrStream
+    ? sniffAgyStderr(stderrStream, (line) => process.stderr.write(line))
+    : undefined;
 
   const forward = (signal: NodeJS.Signals) => {
     if (!child.killed) child.kill(signal);
@@ -89,6 +117,21 @@ async function main(): Promise<never> {
       process.exit(127);
     });
     child.on("exit", async (code, signal) => {
+      // Drain the stderr sniffer so late-arriving AGY_ERROR lines (agy prints
+      // them right before exit) don't race the exit handler.
+      await sniffer?.done().catch(() => undefined);
+      // The sniffer ending means all bytes were read, not that our stderr pipe
+      // has finished writing them. Flush queued diagnostics before exiting.
+      await writeAndDrain(process.stderr, "").catch(() => undefined);
+      const incident = sniffer?.latest();
+      if (incident) {
+        try {
+          await writeAndDrain(process.stdout, serializeAgyIncidentAsResult(incident) + "\n");
+        } catch {
+          // The event is a best-effort classifier; a failed synthesis leaves
+          // openclaw's empty-response path to surface the failure instead.
+        }
+      }
       await cleanup?.().catch(() => undefined);
       if (signal) {
         process.kill(process.pid, signal);

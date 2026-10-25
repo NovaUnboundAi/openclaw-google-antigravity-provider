@@ -50,6 +50,9 @@
   "overrides": {
     "openclaw": {
       "npm": "12.2.1"
-    }
+    },
+    "body-parser": "2.4.0",
+    "undici@^8": "8.12.2",
+    "zod": "4.6.6"
   }
 }
