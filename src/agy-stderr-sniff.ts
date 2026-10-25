@@ -30,19 +30,19 @@ export interface AgyStderrSniffer {
   done(): Promise<void>;
 }
 
-// Reads `stderr` line by line and forwards each line unchanged via `forward`
+// Forwards raw stderr chunks unchanged and separately parses complete lines
 // (so operators / logs see agy's own diagnostics untouched). The returned
 // getter yields the highest-severity incident seen so far — a hard error
 // always beats a print-timeout warning.
 export function sniffAgyStderr(
   stderr: Readable,
-  forward: (line: string) => void,
+  forward: (chunk: string | Buffer) => void,
 ): AgyStderrSniffer {
   let latest: AgyStderrIncident | undefined;
+  stderr.on("data", forward);
   const rl = createInterface({ input: stderr, crlfDelay: Infinity });
 
   rl.on("line", (line) => {
-    forward(line + "\n");
     if (line.startsWith(AGY_ERROR_PREFIX)) {
       const payload = line.slice(AGY_ERROR_PREFIX.length).trim();
       latest = {

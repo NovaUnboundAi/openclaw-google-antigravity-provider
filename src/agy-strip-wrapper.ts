@@ -64,16 +64,14 @@ async function applyBridge(env: NodeJS.ProcessEnv): Promise<(() => Promise<void>
   }
 }
 
-// Node's `process.stdout.write` returns false when the kernel buffer is full;
-// waiting for `drain` before exiting prevents the synthesised result event from
-// being truncated at process shutdown when openclaw's stdin consumer is slow.
-function writeStdoutAndDrain(chunk: string): Promise<void> {
+// Wait for the write callback even when the chunk fits below the high-water
+// mark: returning true only signals buffer capacity, not a completed pipe write.
+function writeAndDrain(stream: NodeJS.WritableStream, chunk: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ok = process.stdout.write(chunk, (err) => {
+    stream.write(chunk, (err) => {
       if (err) reject(err);
+      else resolve();
     });
-    if (ok) resolve();
-    else process.stdout.once("drain", () => resolve());
   });
 }
 
@@ -89,7 +87,7 @@ async function main(): Promise<never> {
 
   // stdin/stdout stay inherited so agy streams stream-json directly to
   // openclaw with no copy overhead. stderr is piped so the sniffer can watch
-  // for terminal markers; every line is forwarded to our own stderr byte-for-
+  // for terminal markers; every chunk is forwarded to our own stderr byte-for-
   // byte, keeping the operator-visible diagnostics untouched.
   const child = spawn(command, restricted?.args ?? strippedArgs, {
     stdio: ["inherit", "inherit", "pipe"],
@@ -122,10 +120,13 @@ async function main(): Promise<never> {
       // Drain the stderr sniffer so late-arriving AGY_ERROR lines (agy prints
       // them right before exit) don't race the exit handler.
       await sniffer?.done().catch(() => undefined);
+      // The sniffer ending means all bytes were read, not that our stderr pipe
+      // has finished writing them. Flush queued diagnostics before exiting.
+      await writeAndDrain(process.stderr, "").catch(() => undefined);
       const incident = sniffer?.latest();
       if (incident) {
         try {
-          await writeStdoutAndDrain(serializeAgyIncidentAsResult(incident) + "\n");
+          await writeAndDrain(process.stdout, serializeAgyIncidentAsResult(incident) + "\n");
         } catch {
           // The event is a best-effort classifier; a failed synthesis leaves
           // openclaw's empty-response path to surface the failure instead.

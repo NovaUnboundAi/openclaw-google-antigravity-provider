@@ -10,7 +10,7 @@ import {
 // child's stderr and returns the final incident + everything the sniffer
 // forwarded to stderr (so we can assert the forward path is byte-transparent).
 async function runSniffer(lines: readonly string[]) {
-  const forwarded: string[] = [];
+  const forwarded: (string | Buffer)[] = [];
   const stream = Readable.from(lines.map((line) => line + "\n"));
   const sniffer = sniffAgyStderr(stream, (chunk) => forwarded.push(chunk));
   await sniffer.done();
@@ -18,6 +18,16 @@ async function runSniffer(lines: readonly string[]) {
 }
 
 describe("sniffAgyStderr", () => {
+  it("preserves CRLF, split UTF-8 bytes, and a final unterminated error", async () => {
+    const raw = Buffer.from('warning: café\r\nAGY_ERROR: {"message":"backend down"}');
+    const forwarded: Buffer[] = [];
+    const stream = Readable.from([raw.subarray(0, 13), raw.subarray(13, 20), raw.subarray(20)]);
+    const sniffer = sniffAgyStderr(stream, (chunk) => forwarded.push(Buffer.from(chunk)));
+    await sniffer.done();
+    expect(Buffer.concat(forwarded)).toEqual(raw);
+    expect(sniffer.latest()?.message).toBe("backend down");
+  });
+
   it("passes through stderr verbatim when nothing terminal shows up", async () => {
     const { incident, forwarded } = await runSniffer([
       "some agy warning",
