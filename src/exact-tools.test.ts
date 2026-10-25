@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { EXACT_CAP_ENV, prepareExactToolExecution, restrictExecutionArgs, scopedMcpServer, validateExactCap } from "./exact-tools.ts";
 
 const captured = {
@@ -43,25 +46,29 @@ describe("exact Antigravity tool cap", () => {
     ]) expect(() => scopedMcpServer({ mcpServers: { openclaw: server } }, "unique")).toThrow();
   });
 
-  it("rejects unverified CLI versions before staging a restricted agent", async () => {
-    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "agy-version-test-"));
+  it("stages an empty cap without reading ambient MCP settings", async () => {
+    const prepared = await prepareExactToolExecution({ args: [], env: {
+      [EXACT_CAP_ENV]: JSON.stringify({ native: [], openClaw: [] }),
+      GEMINI_CLI_SYSTEM_SETTINGS_PATH: "/must-not-read-ambient-settings.json",
+    } });
     try {
-      const command = path.join(fixture, "agy-version");
-      await fs.writeFile(command, "#!/bin/sh\nprintf '1.2.2\\n'\n", { mode: 0o700 });
-      await expect(prepareExactToolExecution({ command, args: [], env: {
-        ...process.env, [EXACT_CAP_ENV]: JSON.stringify({ native: [], openClaw: [] }),
-      } })).rejects.toThrow("verified agy 1.2.1");
-    } finally { await fs.rm(fixture, { recursive: true, force: true }); }
+      const root = prepared.args.at(-1)!;
+      const name = prepared.args[prepared.args.indexOf("--agent") + 1]!;
+      const raw = await fs.readFile(path.join(root, ".agents", "agents", `${name}.md`), "utf8");
+      const agent = JSON.parse(raw.split("---\n")[1]!);
+      expect(agent.tools).toEqual([]);
+      expect(agent.mcpServers).toEqual([]);
+      expect(agent.inheritMcp).toBe(false);
+      expect(agent.plugins).toHaveLength(1);
+    } finally { await prepared.cleanup(); }
   });
 
   it("materializes an isolated agent and removes its private transport on cleanup", async () => {
     const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "agy-cap-test-"));
     try {
-      const command = path.join(fixture, "agy-version");
-      await fs.writeFile(command, "#!/bin/sh\nprintf '1.2.1\\n'\n", { mode: 0o700 });
       const settingsPath = path.join(fixture, "settings.json");
       await fs.writeFile(settingsPath, JSON.stringify(captured), { mode: 0o600 });
-      const prepared = await prepareExactToolExecution({ command, args: ["--print", "test"], env: { ...process.env, [EXACT_CAP_ENV]: JSON.stringify({ native: [], openClaw: ["read"] }), GEMINI_CLI_SYSTEM_SETTINGS_PATH: settingsPath } });
+      const prepared = await prepareExactToolExecution({ args: ["--print", "test"], env: { ...process.env, [EXACT_CAP_ENV]: JSON.stringify({ native: [], openClaw: ["read"] }), GEMINI_CLI_SYSTEM_SETTINGS_PATH: settingsPath } });
       const root = prepared.args.at(-1)!;
       const agentName = prepared.args[prepared.args.indexOf("--agent") + 1]!;
       const agentPath = path.join(root, ".agents", "agents", `${agentName}.md`);
@@ -74,5 +81,55 @@ describe("exact Antigravity tool cap", () => {
       await prepared.cleanup();
       await expect(fs.stat(root)).rejects.toThrow();
     } finally { await fs.rm(fixture, { recursive: true, force: true }); }
+  });
+});
+
+// Executable fixtures exercise the real wrapper spawn/exit/cleanup boundary.
+// POSIX shebang launch is unavailable on Windows.
+describe.skipIf(process.platform === "win32")("restricted wrapper without a CLI version gate", () => {
+  it.each([0, 23])("runs a CLI without --version support once and preserves exit %i", async (exitCode) => {
+    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "agy-wrapper-test-"));
+    let stagedRoot: string | undefined;
+    try {
+      const command = path.join(fixture, "agy.cjs");
+      const capture = path.join(fixture, "calls.jsonl");
+      await fs.writeFile(command, `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.AGY_TEST_CAPTURE, JSON.stringify(args) + "\\n");
+if (args.includes("--version")) process.exit(99);
+const root = args.at(-1);
+const name = args[args.indexOf("--agent") + 1];
+const raw = fs.readFileSync(path.join(root, ".agents", "agents", name + ".md"), "utf8");
+const agent = JSON.parse(raw.split("---\\n")[1]);
+process.stdout.write(JSON.stringify({ args, agent }), () => process.exit(Number(process.env.AGY_TEST_EXIT)));
+`, { mode: 0o700 });
+      const wrapper = fileURLToPath(new URL("./agy-strip-wrapper.ts", import.meta.url));
+      const result = await promisify(execFile)(process.execPath, [wrapper,
+        "--conversation", "old", "--dangerously-skip-permissions", "--print", "test",
+      ], { env: {
+        ...process.env,
+        OPENCLAW_ANTIGRAVITY_REAL_COMMAND: command,
+        [EXACT_CAP_ENV]: JSON.stringify({ native: [], openClaw: [] }),
+        AGY_TEST_CAPTURE: capture,
+        AGY_TEST_EXIT: String(exitCode),
+      } }).then((value) => ({ ...value, code: 0 }), (error) => error);
+      expect(result.code).toBe(exitCode);
+      const { args, agent } = JSON.parse(result.stdout);
+      stagedRoot = args.at(-1);
+      expect(args.slice(0, 3)).toEqual(["--print", "test", "--disable-slash-commands"]);
+      expect(args).not.toContain("--conversation");
+      expect(args).not.toContain("--dangerously-skip-permissions");
+      expect(agent).toMatchObject({ tools: [], mcpServers: [], inheritMcp: false,
+        inheritCustomizations: false, excludeDefaultComponents: true });
+      expect(agent.plugins).toHaveLength(1);
+      const calls = (await fs.readFile(capture, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(calls).toEqual([args]);
+      await expect(fs.stat(stagedRoot!)).rejects.toThrow();
+    } finally {
+      if (stagedRoot) await fs.rm(stagedRoot, { recursive: true, force: true });
+      await fs.rm(fixture, { recursive: true, force: true });
+    }
   });
 });

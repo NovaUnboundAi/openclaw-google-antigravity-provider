@@ -47,7 +47,7 @@ type ImagesDescriptionResult = { text: string; model?: string };
 
 export const ANTIGRAVITY_MEDIA_UNDERSTANDING_ID = "google-antigravity-cli";
 
-const DEFAULT_VISION_MODEL = "gemini-3.7-flash";
+const DEFAULT_VISION_MODEL = "gemini-3.8-flash";
 const DEFAULT_PROMPT =
   "Describe the attached image in detail. Cover subject, composition, notable objects, any visible text, and inferred context. Reply in plain prose.";
 

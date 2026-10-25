@@ -61,7 +61,7 @@ describe("google-antigravity-cli CLI backend", () => {
       }),
     );
     expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES).toMatchObject({
-      flash: "gemini-3.7-flash",
+      flash: "gemini-3.8-flash",
       pro: "gemini-3.1-pro",
       "pro-high": "gemini-3.1-pro-high",
       sonnet: "claude-sonnet-4-6",
@@ -209,19 +209,19 @@ describe("google-antigravity-cli CLI backend", () => {
     it("keeps effort-naming shortcuts pointed at effort-baked ids", () => {
       // Collapsing these to the base family would drop the level the user
       // asked for and hand control back to the slider.
-      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-high"]).toBe("gemini-3.7-flash-high");
-      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-low"]).toBe("gemini-3.7-flash-low");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-high"]).toBe("gemini-3.8-flash-high");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["flash-low"]).toBe("gemini-3.8-flash-low");
       expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["pro-high"]).toBe("gemini-3.1-pro-high");
       expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES["pro-low"]).toBe("gemini-3.1-pro-low");
     });
 
     it("leaves bare shortcuts on the base family for the slider to drive", () => {
-      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES.flash).toBe("gemini-3.7-flash");
+      expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES.flash).toBe("gemini-3.8-flash");
       expect(GOOGLE_ANTIGRAVITY_MODEL_ALIASES.pro).toBe("gemini-3.1-pro");
     });
 
-    it("resolves every alias target to a real agy model id", () => {
-      // `agy models` rows, plus the effort-baked variants it publishes.
+    it("preserves current and legacy alias targets without redirecting explicit IDs", () => {
+      // Current catalog IDs and explicit legacy IDs retained for existing configs.
       const real = new Set([
         "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-pro",
         "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",

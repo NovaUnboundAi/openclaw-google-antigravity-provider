@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { generateGuardPlugin } from "./exact-tool-guard.ts";
 
 export const EXACT_CAP_ENV = "OPENCLAW_ANTIGRAVITY_EXACT_TOOL_CAP";
@@ -82,7 +80,6 @@ export function scopedMcpServer(settings: unknown, name: string): Record<string,
 }
 
 export async function prepareExactToolExecution(params: {
-  command: string;
   args: readonly string[];
   env: NodeJS.ProcessEnv;
 }): Promise<{ args: string[]; cleanup: () => Promise<void> }> {
@@ -90,13 +87,9 @@ export async function prepareExactToolExecution(params: {
   if (!encoded || encoded.length > 256000) throw new Error("Missing Antigravity exact cap");
   const cap = validateExactCap(JSON.parse(encoded));
   const args = restrictExecutionArgs(params.args);
-  const { stdout } = await promisify(execFile)(params.command, ["--version"], {
-    env: params.env, timeout: 10000, maxBuffer: 4096,
-  });
-  // Exact enforcement is a version-specific contract, not a semver promise.
-  if (stdout.trim() !== "1.2.1") {
-    throw new Error("Antigravity exact tool caps currently require verified agy 1.2.1");
-  }
+  // Apply the same isolated-agent policy to every CLI version. A version label
+  // is not an enforcement mechanism; the scoped transport and tool hook below
+  // remain mandatory, with no fallback to an unrestricted invocation.
   // agy silently omits MCP servers with long names; keep the per-run alias short.
   const id = `oc-${randomBytes(8).toString("hex")}`;
   let settings: unknown;

@@ -137,13 +137,14 @@ async function buildAntigravityConfigPatch(
 
 export function buildAntigravityProviderCatalog(
   providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+  models: readonly AntigravityModel[] = MODEL_DEFINITIONS,
 ) {
   return {
     baseUrl: "http://antigravity.local",
     apiKey: GOOGLE_ANTIGRAVITY_AUTH_MARKER,
     api: "google-generative-ai" as const,
     agentRuntime: { id: providerId },
-    models: MODEL_DEFINITIONS.map((model) => ({
+    models: models.map((model) => ({
       id: model.id,
       name: model.name,
       reasoning: model.reasoning,
@@ -160,6 +161,27 @@ function shouldSkipLiveFetch(env: NodeJS.ProcessEnv): boolean {
   // Match bundled plugins (deepinfra, openrouter): keep tests offline so
   // catalog tests don't shell out to a real `agy` binary.
   return env.NODE_ENV === "test" || Boolean(env.VITEST);
+}
+
+// The unified catalog powers control-plane surfaces, but OpenClaw's text
+// runtime still discovers models through ProviderPlugin.catalog. Share this
+// hook with the lightweight provider entry so picker refreshes reach agy too.
+export function buildAntigravityRuntimeCatalog(
+  providerId = GOOGLE_ANTIGRAVITY_PROVIDER_ID,
+): NonNullable<ProviderPlugin["catalog"]> {
+  return {
+    order: "simple",
+    run: async (ctx) => {
+      if (shouldSkipLiveFetch(ctx.env ?? process.env)) return null;
+      // Older supported SDKs omit this optional cancellation field.
+      const context: typeof ctx & { signal?: AbortSignal } = ctx;
+      const live = await getLiveAntigravityModels({ signal: context.signal });
+      // OpenClaw falls back to staticCatalog when no live/cache list exists.
+      return live
+        ? { provider: buildAntigravityProviderCatalog(providerId, live.models) }
+        : null;
+    },
+  };
 }
 
 function toCatalogEntry(
@@ -278,6 +300,7 @@ export function buildGoogleAntigravityProvider(
         mode: "api-key",
       };
     },
+    catalog: buildAntigravityRuntimeCatalog(providerId),
     staticCatalog: {
       order: "simple",
       run: async () => ({ provider: buildAntigravityProviderCatalog(providerId) }),

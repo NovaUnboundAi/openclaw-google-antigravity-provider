@@ -47,7 +47,7 @@ describe("buildAntigravityMediaUnderstandingProvider", () => {
     const provider = buildAntigravityMediaUnderstandingProvider();
     expect(provider.id).toBe("google-antigravity-cli");
     expect(provider.capabilities).toEqual(["image"]);
-    expect(provider.defaultModels?.image).toMatch(/^gemini-/);
+    expect(provider.defaultModels?.image).toBe("gemini-3.8-flash");
     expect(typeof provider.describeImage).toBe("function");
     expect(typeof provider.describeImages).toBe("function");
   });

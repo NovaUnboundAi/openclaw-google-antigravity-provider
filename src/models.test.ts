@@ -222,9 +222,9 @@ describe("STATIC_MODEL_FALLBACK", () => {
     // Gemini families are collapsed; effort is supplied by the slider at
     // execution time via `--effort`.
     expect(ids).toContain("gemini-3.8-flash");
-    expect(ids).toContain("gemini-3.7-flash");
-    expect(ids).toContain("gemini-3.6-flash");
-    expect(ids).toContain("gemini-3.1-pro");
+    expect(ids).not.toContain("gemini-3.7-flash");
+    expect(ids).not.toContain("gemini-3.6-flash");
+    expect(ids).not.toContain("gemini-3.1-pro");
     for (const suffix of ["-high", "-medium", "-low"]) {
       expect(ids.some((id) => id.startsWith("gemini-") && id.endsWith(suffix))).toBe(false);
     }
